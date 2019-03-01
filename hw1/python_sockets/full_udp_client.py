@@ -1,0 +1,47 @@
+#! python3
+import socket
+import sys
+
+HOST = ''	# Symbolic name meaning all available interfaces
+address = '192.168.1.41'
+PORT = 8888	# Arbitrary non-privileged port
+
+# Datagram (udp) socket
+try :
+	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	print ('Socket created')
+except socket.error as msg :
+	print ('Failed to create socket. Error Code : ' + str(msg[0]) + ' Message ' + msg[1])
+	sys.exit()
+
+
+# Bind socket to local host and port
+try:
+	s.bind((HOST, PORT))
+except socket.error as msg:
+	print ('Bind failed. Error Code : ' + str(msg[0]) + ' Message ' + msg[1])
+	sys.exit()
+
+print ('Socket bind complete')
+
+#now keep talking with the client
+while 1:
+	# send integer to send to server (data, addr)
+	int2check = input("int2check: ")
+	print("Going to send.")
+	s.sendto(int2check.encode(), (address, PORT))
+	print("Sent " + int2check)
+	if not int2check.encode():
+		break
+
+	# receive data from client (data, addr)
+	print("Going to wait")
+	d = s.recvfrom(1024)
+	data = d[0]
+	addr = d[1]
+
+	if not data:
+		break
+	print ('Message[' + addr[0] + ':' + str(addr[1]) + '] - ' + data.decode().strip())
+
+s.close()
