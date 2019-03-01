@@ -1,4 +1,5 @@
 import sys
+from ast import literal_eval as make_tuple
 
 sendbuff = {}
 
@@ -68,3 +69,20 @@ try:
     print("removed 7: " + str(value_NOT))
 except KeyError as kerror:
     print("Not found in dictionary")
+
+
+######################################################
+# extract tuple from string
+
+# print(str((1,4)))
+# encoded = (str((1,4))).encode()
+encoded = "hello".encode()
+print(encoded)
+try:
+    tuplesent = make_tuple(encoded.decode())
+    print(tuplesent)
+    first, _ = tuplesent
+    print("first thing from decoded: " + str(first))
+    print(str(1).encode())
+except ValueError as verror:
+    print("Not a tuple in this string LOSER")
