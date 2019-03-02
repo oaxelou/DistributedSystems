@@ -4,14 +4,8 @@ from ast import literal_eval as make_tuple
 
 MCAST_GRP = '224.0.0.1'
 MCAST_PORT = 10000
+# will not be defined if we have multiple services
 SERVICEID = 1
-
-def isprime(x):
-    for i in range(2, x-1):
-        if x % i == 0:
-            return False
-    return True
-
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -78,13 +72,22 @@ while 1:
             #adding request in requestdict (pros to paron to exw balei na apothikeuei to message)
             # ti na to valoume na apothikeuei den kserw.
             # PANTWS PREPEI NA VRISKEI KAPOION SERVER APO TH LISTA TWN SERVERS
-            requestdict[(addr[0], addr[1], reqID)] = message
-            print("Added new request in dict.")
-            print(requestdict)
+            if not serverslist:
+                print("There is no slave-server available")
+                sock.sendto("There is no slave-server available".encode(), addr)
+            else:
+                # vrikei kapoio server (sto part 1 pairnoume to 1o kai monadiko)
+                server2send2 = serverslist[0]
+                # stelnoume ston server pou vrikame olo to d
+                sock.sendto(str(d).encode(), server2send2)
+
+                requestdict[(addr[0], addr[1], reqID)] = message
+                print("Added new request in dict.")
+                print(requestdict)
+                answer2send = "ack - received " + str(message)
+                sock.sendto(answer2send.encode(), addr)
             # h apo katw grammh tha mpei ston slave-server
             #answer2send = "ack - " + str(message) + " is" + (" not " if not isprime(message) else " ") + "prime"
-            answer2send = "ack - received " + str(message)
-            sock.sendto(answer2send.encode(), addr)
 
         else:
             print("Service ID is ok but the message is unrecognizable")
