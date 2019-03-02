@@ -52,6 +52,8 @@ while 1:
     else:
         if message == "ADD_SERVER": #(SERVICEID, "ADD_SERVER"):
             print("A new server is available @ ", addr[0], "&", addr[1])
+            # clearing list before adding the server. There is only one server at a time
+            del serverslist[:]
             # adding server in serverslist IF IT IS NOT IN THERE ALREADY
             if addr not in serverslist:
                 serverslist.append(addr)
@@ -63,9 +65,16 @@ while 1:
 
         elif addr in serverslist:
             print("A slave-server found a result and it's time to sendreply to client!")
-            sock.sendto("ack - Good job, you slave".encode(), addr)
-            # send reply to client
-            # remove request from dict
+            # sock.sendto("ack - Good job, you slave".encode(), addr)
+            key = reqID
+            if key in requestdict:
+                # send reply to client
+                sock.sendto(message.encode(), (key[0],key[1]))
+                # remove request from dict
+                requestdict.pop(key)
+            else:
+                print("Going to discard this result")
+
 
         elif isinstance(message, int):
             print ('Message[',addr[0],':', addr[1], '] - ', data.decode())
@@ -78,17 +87,17 @@ while 1:
             else:
                 # vrikei kapoio server (sto part 1 pairnoume to 1o kai monadiko)
                 server2send2 = serverslist[0]
-                # stelnoume ston server pou vrikame olo to d
-                sock.sendto(str(d).encode(), server2send2)
+                # stelnoume ston server pou vrikame olo to d + requestID
+                print("Found a server to end to: ", server2send2)
+                sock.sendto(str((addr, reqID, message)).encode(), server2send2)
 
                 requestdict[(addr[0], addr[1], reqID)] = message
                 print("Added new request in dict.")
                 print(requestdict)
                 answer2send = "ack - received " + str(message)
-                sock.sendto(answer2send.encode(), addr)
+                # sock.sendto(answer2send.encode(), addr)
             # h apo katw grammh tha mpei ston slave-server
             #answer2send = "ack - " + str(message) + " is" + (" not " if not isprime(message) else " ") + "prime"
-
         else:
             print("Service ID is ok but the message is unrecognizable")
             print("Going to ignore this...")
