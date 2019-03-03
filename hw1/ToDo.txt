@@ -28,20 +28,22 @@ multicast
 
 //////////////////////////////////////////////////////////////////////////////////
 
-Για Κυριακή 3/3/2019:
+Για Δευτερα 4/3/2019:
+
 1) slave server part1 (na to xwrisoume se app kai middleware)
-2) client part1 
-	α) Να το χωρίσουμε σε app και middleware
-	β) 'at most once' υλοποιηση, 
+2) client part1
+	α) 'at most once' υλοποιηση
+	β) non-blocking
 	γ) Να το δομήσουμε στις απαιτήσεις της εκφώνησης
+3) part2:
+	ελεγχος για πολλαπλούς servers
 
-3) master server part2: να υπαρχει μηχανισμος που να ελεγχει την υπαρξη των registered servers
-
-
-
-
-
-
+//////////////////////////////////////////////////////////////////////////////////
 
 Τι έχει γίνει ως τώρα:
+
 1) master server part1
+2) client part1 
+	α) Να το χωρίσουμε σε app και middleware
+3) master server part2: να υπαρχει μηχανισμος που να ελεγχει την υπαρξη των registered servers
+
