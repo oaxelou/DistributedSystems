@@ -18,12 +18,12 @@ PERIOD = 5
 class PingReceiver(Thread):
     def run(self):
         while 1:
-            print("ping receiver thread is going to sleep")
+            # print("ping receiver thread is going to sleep")
             time.sleep(PERIOD)
-            print("ping receiver thread is awake")
+            # print("ping receiver thread is awake")
             lock.acquire()
             for server in serversdict:
-                print("Decrementing value of ", server)
+                # print("Decrementing value of ", server)
                 serversdict[server] -= 1
 
             for server in list(serversdict.keys()):
@@ -85,27 +85,30 @@ while 1:
     lock.acquire()
     print("serversdict: ")
     print(serversdict)
+    print("requestdict: ")
+    print(requestdict)
     if message == 'ping':
         if addr in serversdict:
             serversdict[addr] += 1
-            print("The slave-server ", addr, "infroming that it is still here")
+            # print("The slave-server ", addr, "infroming that it is still here")
         else:
             print("Accidentally removed ", addr, ". Going to add it again")
             if addr not in serversdict:
                 serversdict[addr] = 1
-                print("Going to print updated serversdict:")
-            else:
-                print("Server already registered! Going to print dictionary anyway")
-            print(serversdict)
+                # print("Going to print updated serversdict:")
+            # else:
+                # print("Server already registered! Going to print dictionary anyway")
+            # print(serversdict)
         # sock.sendto("ack - Good job, you slave".encode(), addr)
 
     elif (addr in serversdict ) and message != 'RMV_SERVER':
-        print("A slave-server found a result and it's time to sendreply to client!")
+        # print("A slave-server found a result and it's time to sendreply to client!")
         # sock.sendto("ack - Good job, you slave".encode(), addr)
         key = (checkServiceID[0], checkServiceID[1], reqID)
         if key in requestdict:
             # send reply to client
-            sock.sendto(message.encode(), (key[0],key[1]))
+            (_, _, reqID2send) = key
+            sock.sendto(str((reqID2send, message)).encode(), (key[0],key[1]))
             # remove request from dict
             requestdict.pop(key)
         else:
@@ -120,19 +123,19 @@ while 1:
             # adding server in serversdict IF IT IS NOT IN THERE ALREADY
             if addr not in serversdict:
                 serversdict[addr] = 1
-                print("Going to print updated serversdict:")
-            else:
-                print("Server already registered! Going to print dictionary anyway")
-            print(serversdict)
+                # print("Going to print updated serversdict:")
+            # else:
+                # print("Server already registered! Going to print dictionary anyway")
+            # print(serversdict)
 
         elif message == "RMV_SERVER": #(SERVICEID, "ADD_SERVER"):
             print("server unregistering @ ", addr[0], "&", addr[1])
             # clearing list before adding the server. There is only one server at a time
             if addr in serversdict:
-                serversdict.remove(addr)
-            else:
-                print("Server already unregistered! Going to print list anyway")
-            print(serversdict)
+                del serversdict[addr]
+            # else:
+                # print("Server already unregistered! Going to print list anyway")
+            # print(serversdict)
         elif isinstance(message, int):
             print ('Message[',addr[0],':', addr[1], '] - ', data.decode())
             #adding request in requestdict (pros to paron to exw balei na apothikeuei to message)
@@ -140,7 +143,7 @@ while 1:
             # PANTWS PREPEI NA VRISKEI KAPOION SERVER APO TH LISTA TWN SERVERS
             if not serversdict:
                 print("There is no slave-server available")
-                sock.sendto("There is no slave-server available".encode(), addr)
+                sock.sendto(str(( reqID, "There is no slave-server available")).encode(), addr)
             else:
                 # vrikei kapoio server (sto part 1 pairnoume to 1o kai monadiko)
                 server2send2 = random.choice(list(serversdict.items()))
@@ -149,8 +152,8 @@ while 1:
                 sock.sendto(str((addr, reqID, message)).encode(), server2send2[0])
 
                 requestdict[(addr[0], addr[1], reqID)] = message
-                print("Added new request in dict.")
-                print(requestdict)
+                # print("Added new request in dict.")
+                # print(requestdict)
                 # answer2send = "ack - received " + str(message)
                 # sock.sendto(answer2send.encode(), addr)
             # h apo katw grammh tha mpei ston slave-server

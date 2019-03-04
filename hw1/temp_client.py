@@ -69,45 +69,45 @@ def app():
     block = 1
     req2wait4 = {}
 
-    while 1:
-        print(" ")
-        print(" ")
-        print(" ")
-        print(" ")
-        print(" ")
-        print(" ")
-        print(" ")
-        print(" ")
+    # while 1:
+    print(" ")
+    print(" ")
+    print(" ")
+    print(" ")
+    print(" ")
+    print(" ")
+    print(" ")
+    print(" ")
 
-        for i in range(10):
-            try:
-                int2check = input("int2check: ")
-                # int2check = file_input[i]
+    for i in range(10):
+        try:
+            int2check = input("int2check: ")
+            # int2check = file_input[i]
 
-            except KeyboardInterrupt:
-                sock.close()
-                end_lifetime = 1
-                print("Ending communication...")
-                exit()
+        except KeyboardInterrupt:
+            sock.close()
+            end_lifetime = 1
+            print("Ending communication...")
+            exit()
 
-            if not int2check:
-                sock.close()
-                end_lifetime = 1
-                print("Ending communication...")
-                exit()
+        if not int2check:
+            sock.close()
+            end_lifetime = 1
+            print("Ending communication...")
+            exit()
 
-            requestID = sendRequest(SERVICEID, int2check)
-            req2wait4[requestID] = int2check
+        requestID = sendRequest(SERVICEID, int2check)
+        req2wait4[requestID] = int2check
 
-        # while req2wait4:
-        for req in list(req2wait4.keys()):
-            if getReply(req, block) == 0:
-                # print(" ")
-                # print(" ")
-                # print("Removing ", req, "from requests to wait for")
-                del req2wait4[req]
-            else:
-                print(" ")
+    # while req2wait4:
+    for req in list(req2wait4.keys()):
+        if getReply(req, block) == 0:
+            # print(" ")
+            # print(" ")
+            # print("Removing ", req, "from requests to wait for")
+            del req2wait4[req]
+        else:
+            print(" ")
                 # print(" ")
                 # print("Nothing yet for ", req)
                 # time.sleep(2)
