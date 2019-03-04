@@ -14,6 +14,7 @@ MCAST_PORT = 10000
 SERVICEID = 1
 
 PERIOD = 1
+MAX_ATTEMPTS = 10
 
 lock = Lock()
 lock_received = Lock()
@@ -26,6 +27,7 @@ end_lifetime = 0
 class AtMostOnceSender(Thread):
     def run(self):
         while 1:
+            # print("Going to sleep")
             time.sleep(PERIOD)
             if end_lifetime == 1:
                 print("Exiting from snder thread")
@@ -33,10 +35,21 @@ class AtMostOnceSender(Thread):
             lock.acquire()
             lock_received.acquire()
             # print("Printing list of requests to send", requests2send)
-            for request in requests2send.keys():
-                if request not in requestsReceived.keys():
-                    # print("Going to send request", request)
-                    sock.sendto(str(requests2send[request]).encode(), (MCAST_GRP, MCAST_PORT))
+            for request in list(requests2send.keys()):
+                if (request not in requestsReceived.keys()):
+                    (message, attempts) = requests2send[request]
+                    # print("message ", message)
+                    # print("attempts ", attempts)
+                    if attempts > 0:
+                        # print("Going to send request", request)
+                        # print("requests2send")
+                        # print(requests2send)
+                        requests2send[request] = (message, attempts - 1)
+                        # requests2send[request][1] -= 1
+                        sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
+                    else:
+                        print("max attempts expired. going to reove it from sending list")
+                        del requests2send[request]
             lock.release()
             lock_received.release()
 ################################################################################
@@ -57,6 +70,9 @@ class AtMostOnceReceiver(Thread):
 
             # print("--------------------Message[" + d[1][0] + ":" + str(d[1][1]) + "] : " + d[0].decode().strip())
             (reqID, message) = make_tuple(d[0].decode())
+            if message == "There is no slave-server available":
+                print("There is no slave-server available")
+                continue
             lock_received.acquire()
             # print("Adding message that I received in requestsReceived")
             requestsReceived[reqID] = message
@@ -66,30 +82,27 @@ class AtMostOnceReceiver(Thread):
 ################################ APP FUNCTION ##################################
 def app():
 
-    block = 1
+    block = 0
     req2wait4 = {}
 
-    # while 1:
-    print(" ")
-    print(" ")
-    print(" ")
-    print(" ")
-    print(" ")
-    print(" ")
-    print(" ")
-    print(" ")
+    while 1:
+        # print(" ")
+        # print(" ")
+        # print(" ")
+        # print(" ")
+        # print(" ")
+        # print(" ")
+        # print(" ")
+        # print(" ")
 
-    for i in range(10):
+        # for i in range(10):
         try:
             int2check = input("int2check: ")
-            # int2check = file_input[i]
-
         except KeyboardInterrupt:
             sock.close()
             end_lifetime = 1
             print("Ending communication...")
             exit()
-
         if not int2check:
             sock.close()
             end_lifetime = 1
@@ -99,28 +112,15 @@ def app():
         requestID = sendRequest(SERVICEID, int2check)
         req2wait4[requestID] = int2check
 
-    # while req2wait4:
-    for req in list(req2wait4.keys()):
-        if getReply(req, block) == 0:
-            # print(" ")
-            # print(" ")
-            # print("Removing ", req, "from requests to wait for")
-            del req2wait4[req]
-        else:
-            print(" ")
-                # print(" ")
-                # print("Nothing yet for ", req)
-                # time.sleep(2)
-        # while getReply(requestID, block) == 1:
-        #     time.sleep(1)
-        #     print("will retry to get")
-        # time.sleep(2)
-        # print("")
-        # print("")
-        # print("Going to wait for reply")
-        # print("")
-        # for i in range(10):
-        #     getReply(i, block)
+        # while req2wait4:
+        for req in list(req2wait4.keys()):
+            (getReplyError, answer) = getReply(req, block)
+            if getReplyError == 0:
+                print(" @@@@@@@@@@@@@@ APPLICATION:  ", req2wait4[req], ": ", answer)
+                del req2wait4[req]
+            else:
+                print(" ")
+
 
 def sendRequest(svcid, int2check):
     # sendRequest.__dict__.setdefault('atMostOnceThread', -1)
@@ -141,7 +141,7 @@ def sendRequest(svcid, int2check):
 
     lock.acquire()
     # print("Adding to requests2send: ", message2send)
-    requests2send[sendRequest.requestID] = message2send
+    requests2send[sendRequest.requestID] = (message2send, MAX_ATTEMPTS)
     lock.release()
     # print("added ",message2send)
     return sendRequest.requestID
@@ -157,15 +157,17 @@ def getReply(requestID, block):
             time.sleep(1)
             lock_received.acquire()
 
-        print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ Message: ", requestsReceived[requestID])
+        print("Received ", requestID, ": ", requestsReceived[requestID])
         # print(requestID, "has been received and will be removed from received packages")
+        returnValue = requestsReceived[requestID]
         requestsReceived.pop(requestID)
         # print(requestsReceived)
         lock_received.release()
     else:
         lock_received.acquire()
         if requestID in requestsReceived:
-            print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ Message: ", requestsReceived[requestID])
+            returnValue = requestsReceived[requestID]
+            print("Received ", requestID, ": ", requestsReceived[requestID])
             # print(requestID, "has been received and will be removed from received packages")
             requestsReceived.pop(requestID)
             # print(requestsReceived)
@@ -174,7 +176,7 @@ def getReply(requestID, block):
             # print("Request ", requestID   , " not found in incoming requests")
             # print(requestsReceived)
             lock_received.release()
-            return 1
+            return (1, False)
     # telos diaxwrismou blocking - non blocking
 
     lock.acquire()
@@ -185,7 +187,7 @@ def getReply(requestID, block):
         # print(requestID, "not found in outgoing requests")
     print(requests2send)
     lock.release()
-    return 0
+    return (0, returnValue)
 
 ############################### SOCKET CREATION ################################
 
