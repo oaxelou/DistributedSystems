@@ -14,7 +14,8 @@ MCAST_PORT = 10300
 SERVICEID = 1
 
 PERIOD = 1
-MAX_ATTEMPTS = 10
+MAX_ATTEMPTS = 20
+RECEIVED_FLAG = -5
 
 ################################################################################
 # client sender thread code
@@ -48,8 +49,10 @@ class AtMostOnceSender(Thread):
                         requests2send[request] = (message, attempts - 1)
                         # requests2send[request][1] -= 1
                         sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
+                    elif attempts == RECEIVED_FLAG:
+                        print("I have received this request: ", message, "Going to ignore it...")
                     else:
-                        print("max attempts expired. going to reove it from sending list")
+                        print("max attempts expired. going to remove it from sending list")
                         del requests2send[request]
             lock.release()
             lock_received.release()
@@ -91,6 +94,12 @@ class AtMostOnceReceiver(Thread):
             # print(requestsReceived)
             lock_received.release()
 
+            lock.acquire()
+            if reqID in requests2send:
+                (int2send, _) = requests2send[reqID]
+                requests2send[reqID] = (int2send, RECEIVED_FLAG)
+            lock.release()
+
 
 def sendRequest(svcid, int2check):
     # sendRequest.__dict__.setdefault('atMostOnceThread', -1)
@@ -117,47 +126,73 @@ def sendRequest(svcid, int2check):
     return sendRequest.requestID
 
 def getReply(requestID, block):
+
+    lock.acquire()
+    print(requests2send)
+    if requestID in requests2send:
+        # print(requestID, "has been found in outgoing requests, so I'm going to find it in received list")
+        # requests2send.pop(requestID)
+        lock.release()
+        # return (0, returnValue)
+    else:
+        print(requestID, "not found in outgoing requests. So, I'm going to ignore it")
+        lock.release()
+        return (2, False)
+
     if block:
         lock_received.acquire()
         while requestID not in requestsReceived:
             lock_received.release()
+
+            lock.acquire()
+            if requestID not in requests2send:
+                print(requestID, "not found in outgoing requests. So, I'm going to ignore it")
+                lock.release()
+                return (2, False)
+            lock.release()
             # print("Request ", requestID   , " not found in incoming requests")
-            print(requestsReceived)
+            # print(requestsReceived)
             # print()
+            print("request ", requestID, "not delivered yet")
             time.sleep(1)
             lock_received.acquire()
+            # pass
 
         print("Received ", requestID, ": ", requestsReceived[requestID])
         # print(requestID, "has been received and will be removed from received packages")
         returnValue = requestsReceived[requestID]
-        requestsReceived.pop(requestID)
+        del requestsReceived[requestID]
+        # requestsReceived.pop(requestID)
         # print(requestsReceived)
         lock_received.release()
+
+        lock.acquire()
+        del requests2send[requestID]
+        lock.release()
+        return (0, returnValue)
     else:
         lock_received.acquire()
+
         if requestID in requestsReceived:
             returnValue = requestsReceived[requestID]
-            print("Received ", requestID, ": ", requestsReceived[requestID])
+            print("Received ", requests2send[requestID], ": ", requestsReceived[requestID])
             # print(requestID, "has been received and will be removed from received packages")
             requestsReceived.pop(requestID)
             # print(requestsReceived)
             lock_received.release()
+
+            lock.acquire()
+            requests2send.pop(requestID)
+            lock.release()
+            return (0, returnValue)
         else:
             # print("Request ", requestID   , " not found in incoming requests")
             # print(requestsReceived)
             lock_received.release()
             return (1, False)
-    # telos diaxwrismou blocking - non blocking
 
-    lock.acquire()
-    if requestID in requests2send:
-        # print(requestID, "has been found in outgoing requests")
-        requests2send.pop(requestID)
-    # else:
-        # print(requestID, "not found in outgoing requests")
-    print(requests2send)
-    lock.release()
-    return (0, returnValue)
+
+
 
 ############################### SOCKET CREATION ################################
 

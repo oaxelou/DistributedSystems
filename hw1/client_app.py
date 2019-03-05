@@ -15,29 +15,28 @@ def main():
             int2check = input("int2check: ")
         except KeyboardInterrupt:
             sock.close()
-            # lock_lifetime.acquire()
-            # print(end_lifetime)
-            # end_lifetime = 1
-            # lock_lifetime.release()
-            # print("wait for sender thread")
-            # # atMostOnceThread.join()
-            # print("wait for receiver thread")
-            # sock.close()
-            # receiverThread.join()
             print("Ending communication...")
             exit()
+        except EOFError:
+            while 1:
+                if not req2wait4:
+                    break
+                for req in list(req2wait4.keys()):
+                    (getReplyError, answer) = getReply(req, block)
+                    if getReplyError == 0:
+                        print(" @@@@@@@@@@@@@@ APPLICATION:  ", req2wait4[req], ": ", answer)
+                        del req2wait4[req]
+                    elif getReplyError == 2:
+                        print(req2wait4[req], " has expired. Going to remove it from list")
+                        del req2wait4[req]
+                    # else:
+                    #     print(" ")
+
+            sock.close()
+            print("Ending communication...")
+            break
         if not int2check:
             sock.close()
-            # lock_lifetime.acquire()
-            # print(end_lifetime)
-            # end_lifetime = 1
-            # lock_lifetime.release()
-            # print("wait for sender thread")
-            # atMostOnceThread.join()
-            # print("wait for receiver thread")
-            # sock.close()
-            #
-            # receiverThread.join()
             print("Ending communication...")
             exit()
 
@@ -50,8 +49,10 @@ def main():
             if getReplyError == 0:
                 print(" @@@@@@@@@@@@@@ APPLICATION:  ", req2wait4[req], ": ", answer)
                 del req2wait4[req]
-            else:
-                print(" ")
+            elif getReplyError == 2:
+                print(req2wait4[req], " has expired. Going to remove it from list")
+                del req2wait4[req]
+        time.sleep(1)
 
 
 

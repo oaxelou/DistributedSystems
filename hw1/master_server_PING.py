@@ -11,6 +11,7 @@ MCAST_GRP = '224.0.0.1'
 MCAST_PORT = 10300
 # will not be defined if we have multiple services
 SERVICEID = 1
+INITIAL_WEIGHT = 1
 
 PERIOD = 5
 ################################################################################
@@ -18,20 +19,7 @@ PERIOD = 5
 class PingReceiver(Thread):
     def run(self):
         while 1:
-            # print("ping receiver thread is going to sleep")
-            # try:
             time.sleep(PERIOD)
-            # except KeyboardInterrupt:
-            #     print("ping receiver caught a ^C")
-            #     break
-
-            # lock.acquire()
-            # if sock == -1:
-            #     lock.release()
-            #     print("main master thread ended")
-            #     break
-            # lock.release()
-            # print("ping receiver thread is awake")
             lock.acquire()
             for server in serversdict:
                 # print("Decrementing value of ", server)
@@ -50,6 +38,10 @@ class PingReceiver(Thread):
             lock.release()
 
 
+################################################################################
+# Initializations
+
+# Socket creation
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 # sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,socket.inet_aton(get_local_ip()))
@@ -61,15 +53,21 @@ sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 sock.bind((MCAST_GRP, MCAST_PORT))
 
 
-# init servers' and requests' dictionary
+# init servers' and requests' dictionary + lock for servers
 serversdict = {}
 requestdict = {}
-
 lock = Lock()
 
+# Init ping thread
 pingthread = PingReceiver()
 pingthread.daemon = True
 pingthread.start()
+
+# init total load of the requests
+total_load = 0
+
+
+################################################################################
 
 while 1:
     print("wait to receive data")
@@ -95,33 +93,27 @@ while 1:
         continue
 
     lock.acquire()
-    print("serversdict: ")
-    print(serversdict)
+    print(" ")
+    print(" ")
     print("requestdict: ")
     print(requestdict)
     if message == 'ping':
         if addr in serversdict:
             serversdict[addr] += 1
-            # print("The slave-server ", addr, "infroming that it is still here")
         else:
             print("Accidentally removed ", addr, ". Going to add it again")
             if addr not in serversdict:
                 serversdict[addr] = 1
-                # print("Going to print updated serversdict:")
-            # else:
-                # print("Server already registered! Going to print dictionary anyway")
-            # print(serversdict)
-        # sock.sendto("ack - Good job, you slave".encode(), addr)
-
     elif (addr in serversdict ) and message != 'RMV_SERVER':
-        # print("A slave-server found a result and it's time to sendreply to client!")
-        # sock.sendto("ack - Good job, you slave".encode(), addr)
         key = (checkServiceID[0], checkServiceID[1], reqID)
         if key in requestdict:
             # send reply to client
             (_, _, reqID2send) = key
             sock.sendto(str((reqID2send, message)).encode(), (key[0],key[1]))
             # remove request from dict
+            (_, load_freed) = requestdict[key]
+            total_load -= load_freed
+            print("\t Load less than before: ", total_load)
             requestdict.pop(key)
         else:
             print("Going to discard this result")
@@ -135,19 +127,11 @@ while 1:
             # adding server in serversdict IF IT IS NOT IN THERE ALREADY
             if addr not in serversdict:
                 serversdict[addr] = 1
-                # print("Going to print updated serversdict:")
-            # else:
-                # print("Server already registered! Going to print dictionary anyway")
-            # print(serversdict)
-
         elif message == "RMV_SERVER": #(SERVICEID, "ADD_SERVER"):
             print("server unregistering @ ", addr[0], "&", addr[1])
             # clearing list before adding the server. There is only one server at a time
             if addr in serversdict:
                 del serversdict[addr]
-            # else:
-                # print("Server already unregistered! Going to print list anyway")
-            # print(serversdict)
         elif isinstance(message, int):
             print ('Message[',addr[0],':', addr[1], '] - ', data.decode())
             #adding request in requestdict (pros to paron to exw balei na apothikeuei to message)
@@ -160,10 +144,21 @@ while 1:
                 # vrikei kapoio server (sto part 1 pairnoume to 1o kai monadiko)
                 server2send2 = random.choice(list(serversdict.items()))
                 # stelnoume ston server pou vrikame olo to d + requestID
-                print("Found a server to end to: ", server2send2)
-                sock.sendto(str((addr, reqID, message)).encode(), server2send2[0])
+                print("Found a server to send to: ", server2send2)
 
-                requestdict[(addr[0], addr[1], reqID)] = message
+                if (addr[0], addr[1], reqID) not in requestdict:
+                    sock.sendto(str((addr, reqID, message)).encode(), server2send2[0])
+                    # serversdict[server2send2]
+                    requestdict[(addr[0], addr[1], reqID)] = (message, INITIAL_WEIGHT)
+                    total_load += INITIAL_WEIGHT
+                    print("\tFirst time getting this request. Current load: ", total_load)
+                else:
+                    (_, weight) = requestdict[(addr[0], addr[1], reqID)]
+                    requestdict[(addr[0], addr[1], reqID)] = (message, weight + 1)
+                    total_load += 1
+                    print("\tNot! the first time getting this request. Current load: ", total_load)
+                    # na auksanetai kai to load sto serversdict
+
                 # print("Added new request in dict.")
                 # print(requestdict)
                 # answer2send = "ack - received " + str(message)
