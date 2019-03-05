@@ -8,7 +8,7 @@ from threading import Thread
 from  threading import Lock
 
 MCAST_GRP = '224.0.0.1'
-MCAST_PORT = 1000
+MCAST_PORT = 10300
 # will not be defined if we have multiple services
 SERVICEID = 1
 
@@ -19,18 +19,18 @@ class PingReceiver(Thread):
     def run(self):
         while 1:
             # print("ping receiver thread is going to sleep")
-            try:
-                time.sleep(PERIOD)
-            except KeyboardInterrupt:
-                print("ping receiver caught a ^C")
-                break
+            # try:
+            time.sleep(PERIOD)
+            # except KeyboardInterrupt:
+            #     print("ping receiver caught a ^C")
+            #     break
 
-            lock.acquire()
-            if sock == -1:
-                lock.release()
-                print("main master thread ended")
-                break
-            lock.release()
+            # lock.acquire()
+            # if sock == -1:
+            #     lock.release()
+            #     print("main master thread ended")
+            #     break
+            # lock.release()
             # print("ping receiver thread is awake")
             lock.acquire()
             for server in serversdict:
@@ -68,6 +68,7 @@ requestdict = {}
 lock = Lock()
 
 pingthread = PingReceiver()
+pingthread.daemon = True
 pingthread.start()
 
 while 1:
@@ -177,9 +178,9 @@ while 1:
 
 
 sock.close()
-lock.acquire()
-sock = -1
-lock.release()
-print("Master is going to wait for the thread to quit")
-pingthread.join()
+# lock.acquire()
+# sock = -1
+# lock.release()
+# print("Master is going to wait for the thread to quit")
+# pingthread.join()
 print("Master sender quiting...")

@@ -21,18 +21,18 @@ PERIOD = 5
 class PingSender(Thread):
     def run(self):
         while 1:
-            try:
-                time.sleep(PERIOD)
-            except KeyboardInterrupt:
-                print("ping sender caught an ^C")
-                break
+            # try:
+            time.sleep(PERIOD)
+            # except KeyboardInterrupt:
+            #     print("ping sender caught an ^C")
+            #     break
 
             # print("Going to send ping")
-            try:
-                sock.sendto(str(((0,0), 0, "ping")).encode(), (MCAST_GRP, MCAST_PORT))
-            except OSError:
-                print("Master thread deleted socket")
-                break
+            # try:
+            sock.sendto(str(((0,0), 0, "ping")).encode(), (MCAST_GRP, MCAST_PORT))
+            # except OSError:
+            #     print("Master thread deleted socket")
+            #     break
 
 ############################ LIBRARY FUNCTIONS #################################
 def register(svcid):
@@ -51,8 +51,8 @@ def getRequest(svcid):
         unregister(svcid)
         sock.close()
         # elegxos gia to thread??
-        print("Slave is going to wait for the thread to quit")
-        pingthread.join()
+        # print("Slave is going to wait for the thread to quit")
+        # pingthread.join()
         print("All good. Slave quiting...")
         # print("Ending temp slave-server")
         exit()
@@ -82,4 +82,5 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
 
 pingthread = PingSender()
+pingthread.daemon = True
 pingthread.start()
