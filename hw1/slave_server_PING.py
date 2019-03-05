@@ -7,7 +7,7 @@ from threading import Thread
 from  threading import Lock
 
 MCAST_GRP = '224.0.0.1'
-MCAST_PORT = 10000
+MCAST_PORT = 1000
 SERVICEID = 1
 
 PERIOD = 5
@@ -17,9 +17,19 @@ PERIOD = 5
 class PingSender(Thread):
     def run(self):
         while 1:
-            time.sleep(PERIOD)
+            try:
+                time.sleep(PERIOD)
+            except KeyboardInterrupt:
+                print("ping sender caught an ^C")
+                break
+
             # print("Going to send ping")
-            sock.sendto(str(((0,0), 0, "ping")).encode(), (MCAST_GRP, MCAST_PORT))
+            try:
+                sock.sendto(str(((0,0), 0, "ping")).encode(), (MCAST_GRP, MCAST_PORT))
+            except OSError:
+                print("Master thread deleted socket")
+                break
+
 
 
 ############################### APP  FUNCTION ##################################

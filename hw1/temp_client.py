@@ -10,28 +10,29 @@ import errno
 
 
 MCAST_GRP = '224.0.0.1'
-MCAST_PORT = 10000
+MCAST_PORT = 1000
 SERVICEID = 1
 
 PERIOD = 1
 MAX_ATTEMPTS = 10
 
-lock = Lock()
-lock_received = Lock()
-requests2send = {}
-requestsReceived = {}
-end_lifetime = 0
-
 ################################################################################
 # client sender thread code
 class AtMostOnceSender(Thread):
     def run(self):
+        global sock
+        global end_lifetime
         while 1:
             # print("Going to sleep")
             time.sleep(PERIOD)
+            lock_lifetime.acquire()
+            print ( "end_lifetime", end_lifetime)
             if end_lifetime == 1:
+                lock_lifetime.release()
                 print("Exiting from snder thread")
                 break
+            lock_lifetime.release()
+
             lock.acquire()
             lock_received.acquire()
             # print("Printing list of requests to send", requests2send)
@@ -56,19 +57,29 @@ class AtMostOnceSender(Thread):
 
 # client sender thread code
 class AtMostOnceReceiver(Thread):
+    global sock
     def run(self):
+        global end_lifetime
         while 1:
-            if end_lifetime == 1:
-                print("Exiting from snder thread")
-                break
-            # print("Going to sleep")
+            print("\tgoing to wait for an answer from server")
             try:
                 d = sock.recvfrom(1024)
             except KeyboardInterrupt:
-                print("Ending temp client")
+                print("\tEnding temp client")
+                break
+            except OSError:
+                print("\tapp terminating this thread")
                 break
 
-            # print("--------------------Message[" + d[1][0] + ":" + str(d[1][1]) + "] : " + d[0].decode().strip())
+            print("\tgoing to the the lock in receiver")
+            lock_lifetime.acquire()
+            if end_lifetime == 1:
+                lock_lifetime.release()
+                print("\tExiting from receiver thread")
+                break
+            lock_lifetime.release()
+
+            print("--------------------Message[" + d[1][0] + ":" + str(d[1][1]) + "] : " + d[0].decode().strip())
             (reqID, message) = make_tuple(d[0].decode())
             if message == "There is no slave-server available":
                 print("There is no slave-server available")
@@ -81,31 +92,40 @@ class AtMostOnceReceiver(Thread):
             lock_received.release()
 ################################ APP FUNCTION ##################################
 def app():
+    global end_lifetime
+    global sock
 
     block = 0
     req2wait4 = {}
 
     while 1:
-        # print(" ")
-        # print(" ")
-        # print(" ")
-        # print(" ")
-        # print(" ")
-        # print(" ")
-        # print(" ")
-        # print(" ")
-
-        # for i in range(10):
         try:
             int2check = input("int2check: ")
         except KeyboardInterrupt:
             sock.close()
+            lock_lifetime.acquire()
+            print(end_lifetime)
             end_lifetime = 1
+            lock_lifetime.release()
+            print("wait for sender thread")
+            atMostOnceThread.join()
+            print("wait for receiver thread")
+            sock.close()
+            receiverThread.join()
             print("Ending communication...")
             exit()
         if not int2check:
             sock.close()
+            lock_lifetime.acquire()
+            print(end_lifetime)
             end_lifetime = 1
+            lock_lifetime.release()
+            print("wait for sender thread")
+            atMostOnceThread.join()
+            print("wait for receiver thread")
+            sock.close()
+
+            receiverThread.join()
             print("Ending communication...")
             exit()
 
@@ -206,4 +226,13 @@ atMostOnceThread.start()
 receiverThread = AtMostOnceReceiver()
 receiverThread.start()
 
+lock = Lock()
+lock_received = Lock()
+requests2send = {}
+requestsReceived = {}
+lock_lifetime = Lock()
+
+end_lifetime = 0
+
 app()
+# end_lifetime = 1
