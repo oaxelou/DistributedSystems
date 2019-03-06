@@ -14,7 +14,7 @@ MCAST_PORT = 10300
 # SERVICEID = 1
 
 PERIOD = 1
-MAX_ATTEMPTS = 30
+MAX_ATTEMPTS = 50
 RECEIVED_FLAG = -5
 
 SUCCESS = 0
@@ -132,7 +132,7 @@ def sendRequest(svcid, int2check):
 def getReply(requestID, block):
 
     lock.acquire()
-    print(requests2send)
+    # print(requests2send)
     if requestID in requests2send:
         # print(requestID, "has been found in outgoing requests, so I'm going to find it in received list")
         # requests2send.pop(requestID)
