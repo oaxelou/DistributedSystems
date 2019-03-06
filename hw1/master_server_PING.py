@@ -147,7 +147,7 @@ while 1:
             del serversdict[addr]
 
     # Received a request from a client
-    elif isinstance(message, int):
+    else:
         print ('Message[',addr[0],':', addr[1], '] - ', data.decode())
         #adding request in requestdict (pros to paron to exw balei na apothikeuei to message)
         # ti na to valoume na apothikeuei den kserw.
@@ -205,10 +205,10 @@ while 1:
                 # na auksanetai kai to load sto serversdict
 
 
-    else:
-        print("Service ID is ok but the message is unrecognizable")
-        print("Going to ignore this...")
-        sock.sendto("ack - Who are you mate?".encode(), addr)
+    # else:
+    #     print("Service ID is ok but the message is unrecognizable")
+    #     print("Going to ignore this...")
+    #     sock.sendto("ack - Who are you mate?".encode(), addr)
     lock.release()
 
 

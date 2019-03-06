@@ -1,6 +1,6 @@
 from slave_server_library import *
 
-SERVICEID = 1  
+SERVICEID = 1
 
 ############################### APP  FUNCTION ##################################
 def isprime(x):
@@ -16,8 +16,12 @@ def main():
         (client, reqID, message) = getRequest(SERVICEID)
         if((client, reqID, message) == ((0,0), 0, 0)):
             continue
-        message2send = str(isprime(int(message)))
-        sendReply(client, reqID, message2send)
+        if isinstance(message, int):
+            message2send = str(isprime(int(message)))
+            sendReply(client, reqID, message2send)
+        else:
+            message2send = "Not an integer. Don't know what to do with that."
+            sendReply(client, reqID, message2send)
 
 
 if __name__ == "__main__":
