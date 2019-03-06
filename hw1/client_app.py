@@ -23,14 +23,15 @@ def main():
                     break
                 for req in list(req2wait4.keys()):
                     (getReplyError, answer) = getReply(req, block)
-                    if getReplyError == 0:
-                        print(" @@@@@@@@@@@@@@ APPLICATION:  ", req2wait4[req], ": ", answer)
+                    if getReplyError == SUCCESS:
+                        print("\t\t@@@@@@@@@@@@@@ APPLICATION:  ", req2wait4[req], ": ", answer)
                         del req2wait4[req]
-                    elif getReplyError == 2:
-                        print(req2wait4[req], " has expired. Going to remove it from list")
+                    elif getReplyError == EXPIRED_ERROR:
+                        print("\t\t", req2wait4[req], " has expired. Going to remove it from list")
                         del req2wait4[req]
-                    # else:
-                    #     print(" ")
+                    elif getReplyError == NO_SERVER_ERROR:
+                        print("\t\tNo server availabel for ", req2wait4[req], ". Going to remove it from list")
+                        del req2wait4[req]
 
             sock.close()
             print("Ending communication...")
@@ -43,16 +44,19 @@ def main():
         requestID = sendRequest(SERVICEID, int2check)
         req2wait4[requestID] = int2check
 
-        # while req2wait4:
         for req in list(req2wait4.keys()):
             (getReplyError, answer) = getReply(req, block)
-            if getReplyError == 0:
-                print(" @@@@@@@@@@@@@@ APPLICATION:  ", req2wait4[req], ": ", answer)
+            if getReplyError == SUCCESS:
+                print("\t\t@@@@@@@@@@@@@@ APPLICATION:  ", req2wait4[req], ": ", answer)
                 del req2wait4[req]
-            elif getReplyError == 2:
-                print(req2wait4[req], " has expired. Going to remove it from list")
+            elif getReplyError == EXPIRED_ERROR:
+                print("\t\t", req2wait4[req], " has expired. Going to remove it from list")
                 del req2wait4[req]
-        time.sleep(1)
+            elif getReplyError == NO_SERVER_ERROR:
+                print("\t\tNo server availabel for ", req2wait4[req], ". Going to remove it from list")
+                del req2wait4[req]
+
+        # time.sleep(1)
 
 
 

@@ -7,7 +7,7 @@ from threading import Thread
 from  threading import Lock
 
 MCAST_GRP = '224.0.0.1'
-MCAST_PORT = 1000
+MCAST_PORT = 10300
 SERVICEID = 1
 
 PERIOD = 5

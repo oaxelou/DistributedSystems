@@ -11,12 +11,16 @@ import errno
 
 MCAST_GRP = '224.0.0.1'
 MCAST_PORT = 10300
-SERVICEID = 1
+# SERVICEID = 1
 
 PERIOD = 1
-MAX_ATTEMPTS = 20
+MAX_ATTEMPTS = 30
 RECEIVED_FLAG = -5
 
+SUCCESS = 0
+NOT_YET_ERROR = 1
+EXPIRED_ERROR = 2
+NO_SERVER_ERROR = 3
 ################################################################################
 # client sender thread code
 class AtMostOnceSender(Thread):
@@ -57,7 +61,6 @@ class AtMostOnceSender(Thread):
             lock.release()
             lock_received.release()
 ################################################################################
-
 # client sender thread code
 class AtMostOnceReceiver(Thread):
     global sock
@@ -84,9 +87,9 @@ class AtMostOnceReceiver(Thread):
 
             print("--------------------Message[" + d[1][0] + ":" + str(d[1][1]) + "] : " + d[0].decode().strip())
             (reqID, message) = make_tuple(d[0].decode())
-            if message == "There is no slave-server available":
+            if message == "NO-SERVER":
                 print("There is no slave-server available")
-                continue
+                # continue
             lock_received.acquire()
             # print("Adding message that I received in requestsReceived")
             requestsReceived[reqID] = message
@@ -100,6 +103,7 @@ class AtMostOnceReceiver(Thread):
                 requests2send[reqID] = (int2send, RECEIVED_FLAG)
             lock.release()
 
+################################################################################
 
 def sendRequest(svcid, int2check):
     # sendRequest.__dict__.setdefault('atMostOnceThread', -1)
@@ -137,7 +141,7 @@ def getReply(requestID, block):
     else:
         print(requestID, "not found in outgoing requests. So, I'm going to ignore it")
         lock.release()
-        return (2, False)
+        return (EXPIRED_ERROR, False)
 
     if block:
         lock_received.acquire()
@@ -148,7 +152,7 @@ def getReply(requestID, block):
             if requestID not in requests2send:
                 print(requestID, "not found in outgoing requests. So, I'm going to ignore it")
                 lock.release()
-                return (2, False)
+                return (EXPIRED_ERROR, False)
             lock.release()
             # print("Request ", requestID   , " not found in incoming requests")
             # print(requestsReceived)
@@ -169,7 +173,9 @@ def getReply(requestID, block):
         lock.acquire()
         del requests2send[requestID]
         lock.release()
-        return (0, returnValue)
+        if returnValue == "NO-SERVER":
+            return (NO_SERVER_ERROR, False)
+        return (SUCCESS, returnValue)
     else:
         lock_received.acquire()
 
@@ -184,12 +190,14 @@ def getReply(requestID, block):
             lock.acquire()
             requests2send.pop(requestID)
             lock.release()
-            return (0, returnValue)
+            if returnValue == "NO-SERVER":
+                return (NO_SERVER_ERROR, False)
+            return (SUCCESS, returnValue)
         else:
             # print("Request ", requestID   , " not found in incoming requests")
             # print(requestsReceived)
             lock_received.release()
-            return (1, False)
+            return (NOT_YET_ERROR, False)
 
 
 
