@@ -132,7 +132,7 @@ def sendRequest(svcid, int2check):
 def getReply(requestID, block):
 
     lock.acquire()
-    # print(requests2send)
+    print(requests2send)
     if requestID in requests2send:
         # print(requestID, "has been found in outgoing requests, so I'm going to find it in received list")
         # requests2send.pop(requestID)
