@@ -15,8 +15,11 @@ def main():
     while 1:
         try:
             (client, reqID, message) = getRequest(SERVICEID)
-            if((client, reqID, message) == ((0,0), 0, 0)):
+            if (client, reqID, message) == ERROR_INVALID_FORMAT:
                 continue
+            elif (client, reqID, message) == ERROR_INVALID_SERVICEID:
+                print("Another serivce is occuping this machine. I can't operate")
+                exit()
             if isinstance(message, int):
                 message2send = str(isprime(int(message)))
                 sendReply(client, reqID, message2send)

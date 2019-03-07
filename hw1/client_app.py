@@ -56,7 +56,7 @@ def main():
                 print("\t\tNo server availabel for ", req2wait4[req], ". Going to remove it from list")
                 del req2wait4[req]
 
-        # time.sleep(1)
+        # time.sleep(0.05)
 
 
 

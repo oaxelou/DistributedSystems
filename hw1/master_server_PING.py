@@ -7,8 +7,14 @@ import threading
 from threading import Thread
 from  threading import Lock
 
+HEADER = '\033[95m'
+BLUE = '\033[94m'
+GREEN = '\033[92m'
 WARNING = '\033[93m'
+FAIL = '\033[91m'
 ENDC = '\033[0m'
+BOLD = '\033[1m'
+UNDERLINE = '\033[4m'
 
 MCAST_GRP = '224.0.0.1'
 MCAST_PORT = 10300
@@ -17,7 +23,7 @@ MCAST_PORT = 10300
 INITIAL_WEIGHT = 1
 
 LOWER_THRESHOLD = 2
-UPPER_THRESHOLD = 33
+UPPER_THRESHOLD = 5
 
 PERIOD = 0.5
 ################################################################################
@@ -51,7 +57,7 @@ class PingReceiver(Thread):
                     serversdict[server] = (srvcID, currentPingNumber, False, load)
                     print("no traffic, making only one server active")
 
-                print("Resetting load of each slave server")
+                # print("Resetting load of each slave server")
                 for server in serversdict:
                     (srvcID, currentPingNumber, activeFlag, _) = serversdict[server]
                     serversdict[server] = (srvcID, currentPingNumber, activeFlag, 0)
@@ -61,12 +67,6 @@ class PingReceiver(Thread):
                 (srvcID, currentPingNumber, _, load) = serversdict[server]
                 serversdict[server] = (srvcID, currentPingNumber, True, load)
                 print("All active servers are down. Going to active someone else")
-            # dict((key, value) for key, value in serversdict.items() if value>0)
-            # for server in :
-            #     serversdict[server] -= 1
-            #     if serversdict[server] == 0:
-            #         print("No ping from ", server, ". I am going to remove it")
-            #         serversdict.pop(server)
             lock.release()
 
 
@@ -125,10 +125,10 @@ while 1:
         continue
 
     lock.acquire()
-    print(" ")
-    print(" ")
-    print("requestdict: ")
-    print(requestdict)
+    # print(" ")
+    # print(" ")
+    # print("requestdict: ")
+    # print(requestdict)
     print("serversdict")
     print(serversdict)
     print("total load = ", total_load)
@@ -141,12 +141,23 @@ while 1:
             # print("Accidentally removed ", addr, ". Going to add it again")
             if addr not in serversdict:
                 if len(serversdict) == 0:
-                    serversdict[addr] = (message[0], 3, True, 0)
+                    serversdict[addr] = (message[0], 2, True, 0)
                 else:
-                    serversdict[addr] = (message[0], 3, False, 0)
+                    randomServerInDictionary = random.choice(list({k:v for k,v in serversdict.items()}))
+                    (serviceID, _, _, _) = serversdict[randomServerInDictionary]
+                    if message[0] == serviceID:
+                        serversdict[addr] = (message[0], 2, False, 0)
+                    else:
+                        print(BLUE, "Another service is running on the servers. You can't register.", ENDC)
+                        sock.sendto(str(((0, 0), 0, 1)).encode(), addr)
 
     # Received answer from a slave server
     elif (addr in serversdict ) and not isinstance(message, tuple):
+        # (_, _, activeFlag, _) = serversdict[addr]
+        # if activeFlag == False:
+        #     print("server ", addr, " was deactivated. Going to ignore his answer...")
+        #     lock.release()
+        #     continue
         key = (checkServiceID[0], checkServiceID[1], reqID)
         if key in requestdict:
             # send reply to client
@@ -161,13 +172,31 @@ while 1:
 
             if len({k:v for k,v in serversdict.items() if v[2] == True}) > 1 and (total_load / len({k:v for k,v in serversdict.items() if v[2] == True})) < LOWER_THRESHOLD :
                 print("\n\n\n\n\n\n\n\n Reached lower threshold. Going to deactivate one server. Total #servers: ", len({k:v for k,v in serversdict.items() if v[2] == True}))
-                serverToDeactivate = addr  # autos pou molis afhse thn aithsh
-                print("server to deactivate: ", serversdict[serverToDeactivate])
+
+                activeServers = {k:v for k,v in serversdict.items() if v[2] == True}
+                print(" activeServers: ", activeServers)
+                #  search for the server with the minimum load
+                serverToDeactivate = random.choice(list(activeServers))
+                (_, _, _, minimum) = activeServers[serverToDeactivate]
+                for server in activeServers:
+                    (_, _, _, load) = activeServers[server]
+                    if load < minimum:
+                        minimum = load
+                        serverToDeactivate = server
+
+                # serverToDeactivate = addr  # autos pou molis afhse thn aithsh
+                print(GREEN, "server to deactivate: ", serverToDeactivate, ENDC)
                 (srvcID, currentPingNumber, _, load) = serversdict[serverToDeactivate]
                 serversdict[serverToDeactivate] = (srvcID, currentPingNumber, False, load)
             requestdict.pop(key)
-        # else:
-            # print("Going to discard this result")
+        else:
+            print(BLUE, "Going to discard this result", ENDC)
+            print(BLUE, "Going to discard this result", ENDC)
+            print(BLUE, "Going to discard this result", ENDC)
+            print(BLUE, "Going to discard this result", ENDC)
+            print(BLUE, "Going to discard this result", ENDC)
+            print(BLUE, "Going to discard this result", ENDC)
+            print(BLUE, "Going to discard this result", ENDC)
 
     # Received a "register" message
     elif isinstance(message, tuple) and message[1] == "ADD_SERVER":
@@ -179,7 +208,15 @@ while 1:
             if len(serversdict) == 0:
                 serversdict[addr] = (message[0], 3, True, 0)
             else:
-                serversdict[addr] = (message[0], 2, False, 0)
+                # take the serviceID of a random server in the dictionary
+                randomServerInDictionary = random.choice(list({k:v for k,v in serversdict.items()}))
+                (serviceID, _, _, _) = serversdict[randomServerInDictionary]
+                if message[0] == serviceID:
+                    serversdict[addr] = (message[0], 2, False, 0)
+                else:
+                    print(BLUE, "Another service is running on the servers. You can't register.", ENDC)
+                    sock.sendto(str(((0, 0), 0, 1)).encode(), addr)
+
 
 
     # Received an "unregister" message
@@ -245,7 +282,7 @@ while 1:
                     print(WARNING, "Weight of " , (addr[0], addr[1], reqID), ":", weight, ENDC)
                     requestdict[(addr[0], addr[1], reqID)] = (message, weight + 1, serverHandlingIt)
                     total_load += 1
-                    if serverHandlingIt in serversdict:
+                    if serverHandlingIt in serversAvailable4thisServiceID:
                         (srvcID, currentPingNumber, activeFlag, load) = serversdict[serverHandlingIt]
                         serversdict[serverHandlingIt] = (srvcID, currentPingNumber, activeFlag, load + 1)
                         # print("\tNot! the first time getting this request. Current load: ", total_load)

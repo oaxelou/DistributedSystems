@@ -67,7 +67,7 @@ class AtMostOnceReceiver(Thread):
     def run(self):
         # global end_lifetime
         while 1:
-            print("\tgoing to wait for an answer from server")
+            # print("\tgoing to wait for an answer from server")
             try:
                 d = sock.recvfrom(1024)
             except KeyboardInterrupt:
@@ -85,7 +85,7 @@ class AtMostOnceReceiver(Thread):
             #     break
             # lock_lifetime.release()
 
-            print("--------------------Message[" + d[1][0] + ":" + str(d[1][1]) + "] : " + d[0].decode().strip())
+            # print("--------------------Message[" + d[1][0] + ":" + str(d[1][1]) + "] : " + d[0].decode().strip())
             (reqID, message) = make_tuple(d[0].decode())
             if message == "NO-SERVER":
                 print("There is no slave-server available")
@@ -132,7 +132,7 @@ def sendRequest(svcid, int2check):
 def getReply(requestID, block):
 
     lock.acquire()
-    print(requests2send)
+    # print(requests2send)
     if requestID in requests2send:
         # print(requestID, "has been found in outgoing requests, so I'm going to find it in received list")
         # requests2send.pop(requestID)
@@ -162,7 +162,7 @@ def getReply(requestID, block):
             lock_received.acquire()
             # pass
 
-        print("Received ", requestID, ": ", requestsReceived[requestID])
+        # print("Received ", requestID, ": ", requestsReceived[requestID])
         # print(requestID, "has been received and will be removed from received packages")
         returnValue = requestsReceived[requestID]
         del requestsReceived[requestID]
@@ -181,7 +181,7 @@ def getReply(requestID, block):
 
         if requestID in requestsReceived:
             returnValue = requestsReceived[requestID]
-            print("Received ", requests2send[requestID], ": ", requestsReceived[requestID])
+            # print("Received ", requests2send[requestID], ": ", requestsReceived[requestID])
             # print(requestID, "has been received and will be removed from received packages")
             requestsReceived.pop(requestID)
             # print(requestsReceived)

@@ -16,6 +16,9 @@ MCAST_PORT = 10300
 
 PERIOD = 0.5
 serviceID = -1
+
+ERROR_INVALID_FORMAT = ((0,0), 0, 0)
+ERROR_INVALID_SERVICEID = ((0,0), 0, 1)
 ################################################################################
 # slave-server checker thread code
 class PingSender(Thread):
@@ -54,8 +57,10 @@ def getRequest(svcid):
     except ValueError as verror:
         print("Received message with", verror)
         print("Going to ignore it...")
-        return ((0,0), 0 , 0)
+        return ERROR_INVALID_FORMAT
 
+    if message == "WRONG-SERVICEID":
+        return ERROR_INVALID_SERVICEID
     return (client, reqID, message)
 
 ###################################################
