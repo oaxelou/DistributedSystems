@@ -1,3 +1,11 @@
+# Distributed Systems - hw1 :
+# Asychronous request-reply with at most once and dynamic management of the servers
+#                                                        (load balancing)
+# Axelou Olympia 2161
+# Tsitsopoulou Irene 2203
+#
+# slave_server_app.py: Slave server app file
+#
 from slave_server_library import *
 
 SERVICEID = 1
@@ -10,7 +18,6 @@ def isprime(x):
     return True
 
 def main():
-    # global SERVICEID
     register(SERVICEID)
     while 1:
         try:

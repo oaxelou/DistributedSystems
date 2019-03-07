@@ -1,3 +1,12 @@
+# Distributed Systems - hw1 :
+# Asychronous request-reply with at most once and dynamic management of the servers
+#                                                        (load balancing)
+# Axelou Olympia 2161
+# Tsitsopoulou Irene 2203
+#
+# client_library.py: Client middleware file
+#
+
 import socket
 from ast import literal_eval as make_tuple
 import time
@@ -5,13 +14,10 @@ import random
 import threading
 from threading import Thread
 from threading import Lock
-# import fcntl, os
 import errno
-
 
 MCAST_GRP = '224.0.0.1'
 MCAST_PORT = 10300
-# SERVICEID = 1
 
 PERIOD = 1
 MAX_ATTEMPTS = 50
@@ -21,37 +27,21 @@ SUCCESS = 0
 NOT_YET_ERROR = 1
 EXPIRED_ERROR = 2
 NO_SERVER_ERROR = 3
-################################################################################
-# client sender thread code
+############################### client sender thread #################################
+# It periodically resends every request in requests2send with attempts flag > 0 (max attempts = MAX_ATTEMPTS)
+# until the receiver of the client has taken the reply
 class AtMostOnceSender(Thread):
     def run(self):
         global sock
-        # global end_lifetime
         while 1:
-            # print("Going to sleep")
             time.sleep(PERIOD)
-            # lock_lifetime.acquire()
-            # print ( "end_lifetime", end_lifetime)
-            # if end_lifetime == 1:
-            #     lock_lifetime.release()
-            #     print("Exiting from snder thread")
-            #     break
-            # lock_lifetime.release()
-
             lock.acquire()
             lock_received.acquire()
-            # print("Printing list of requests to send", requests2send)
             for request in list(requests2send.keys()):
                 if (request not in requestsReceived.keys()):
                     (message, attempts) = requests2send[request]
-                    # print("message ", message)
-                    # print("attempts ", attempts)
                     if attempts > 0:
-                        # print("Going to send request", request)
-                        # print("requests2send")
-                        # print(requests2send)
                         requests2send[request] = (message, attempts - 1)
-                        # requests2send[request][1] -= 1
                         sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
                     elif attempts == RECEIVED_FLAG:
                         print("I have received this request: ", message, "Going to ignore it...")
@@ -60,14 +50,14 @@ class AtMostOnceSender(Thread):
                         del requests2send[request]
             lock.release()
             lock_received.release()
-################################################################################
-# client sender thread code
+
+############################## client receiver thread ################################
+# It blocks until a message is received. It adds it in the requestsReceived dictionary
+# and informs the requests2send dictionary with the RECEIVED_FLAG in attempts
 class AtMostOnceReceiver(Thread):
     global sock
     def run(self):
-        # global end_lifetime
         while 1:
-            # print("\tgoing to wait for an answer from server")
             try:
                 d = sock.recvfrom(1024)
             except KeyboardInterrupt:
@@ -77,24 +67,12 @@ class AtMostOnceReceiver(Thread):
                 print("\tapp terminating this thread")
                 break
 
-            # print("\tgoing to the the lock in receiver")
-            # lock_lifetime.acquire()
-            # if end_lifetime == 1:
-            #     lock_lifetime.release()
-            #     print("\tExiting from receiver thread")
-            #     break
-            # lock_lifetime.release()
-
-            # print("--------------------Message[" + d[1][0] + ":" + str(d[1][1]) + "] : " + d[0].decode().strip())
             (reqID, message) = make_tuple(d[0].decode())
             if message == "NO-SERVER":
                 print("There is no slave-server available")
-                # continue
+
             lock_received.acquire()
-            # print("Adding message that I received in requestsReceived")
             requestsReceived[reqID] = message
-            # print("requestsReceived:", requestsReceived)
-            # print(requestsReceived)
             lock_received.release()
 
             lock.acquire()
@@ -104,76 +82,62 @@ class AtMostOnceReceiver(Thread):
             lock.release()
 
 ################################################################################
-
+# Forms the message to send and adds the request in the request2send dictionary
+# and returns the requestID
 def sendRequest(svcid, int2check):
-    # sendRequest.__dict__.setdefault('atMostOnceThread', -1)
-    #
-    # if sendRequest.atMostOnceThread == -1:
-    #     sendRequest.atMostOnceThread = AtMostOnceSender()
-    #     sendRequest.atMostOnceThread.start()
-
     sendRequest.__dict__.setdefault('requestID', -1)
     sendRequest.requestID += 1
-
-
-    # probably won't be needed (99%)
     try:
         message2send = (svcid, sendRequest.requestID, int(int2check))
     except ValueError as verror:
         message2send = (svcid, sendRequest.requestID, int2check)
 
     lock.acquire()
-    # print("Adding to requests2send: ", message2send)
     requests2send[sendRequest.requestID] = (message2send, MAX_ATTEMPTS)
     lock.release()
-    # print("added ",message2send)
     return sendRequest.requestID
 
+################################################################################
+# 2nd parameter sets the communication to blocking or non-blocking
+# Return value:
+# SUCCESS = 0
+# NOT_YET_ERROR = 1 (only for non-blocking)
+# EXPIRED_ERROR = 2 (request in received dictionary but not in to-send dictionary)
+# NO_SERVER_ERROR = 3 (no servers available for this requestID)
 def getReply(requestID, block):
 
     lock.acquire()
-    # print(requests2send)
     if requestID in requests2send:
-        # print(requestID, "has been found in outgoing requests, so I'm going to find it in received list")
-        # requests2send.pop(requestID)
         lock.release()
-        # return (0, returnValue)
     else:
         print(requestID, "not found in outgoing requests. So, I'm going to ignore it")
         lock.release()
         return (EXPIRED_ERROR, False)
 
-    if block:
+    if block: # if blocking argument is checked
         lock_received.acquire()
+        # it's going to be blocked in the while until it has the reply
         while requestID not in requestsReceived:
             lock_received.release()
-
             lock.acquire()
+            # The request has expired and it's going to be ignored
             if requestID not in requests2send:
                 print(requestID, "not found in outgoing requests. So, I'm going to ignore it")
                 lock.release()
                 return (EXPIRED_ERROR, False)
             lock.release()
-            # print("Request ", requestID   , " not found in incoming requests")
-            # print(requestsReceived)
-            # print()
-            print("request ", requestID, "not delivered yet")
-            time.sleep(1)
+            # The reply is not yet delivered. It's going to sleep for 0.1sec and try again
+            time.sleep(0.1)
             lock_received.acquire()
-            # pass
 
-        # print("Received ", requestID, ": ", requestsReceived[requestID])
-        # print(requestID, "has been received and will be removed from received packages")
         returnValue = requestsReceived[requestID]
         del requestsReceived[requestID]
-        # requestsReceived.pop(requestID)
-        # print(requestsReceived)
         lock_received.release()
-
         lock.acquire()
         del requests2send[requestID]
         lock.release()
         if returnValue == "NO-SERVER":
+            # no slave server available (message sent by the master server)
             return (NO_SERVER_ERROR, False)
         return (SUCCESS, returnValue)
     else:
@@ -181,12 +145,8 @@ def getReply(requestID, block):
 
         if requestID in requestsReceived:
             returnValue = requestsReceived[requestID]
-            # print("Received ", requests2send[requestID], ": ", requestsReceived[requestID])
-            # print(requestID, "has been received and will be removed from received packages")
             requestsReceived.pop(requestID)
-            # print(requestsReceived)
             lock_received.release()
-
             lock.acquire()
             requests2send.pop(requestID)
             lock.release()
@@ -194,8 +154,6 @@ def getReply(requestID, block):
                 return (NO_SERVER_ERROR, False)
             return (SUCCESS, returnValue)
         else:
-            # print("Request ", requestID   , " not found in incoming requests")
-            # print(requestsReceived)
             lock_received.release()
             return (NOT_YET_ERROR, False)
 
@@ -203,11 +161,8 @@ def getReply(requestID, block):
 
 
 ############################### SOCKET CREATION ################################
-
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
-
-print("Socket is ready")
 
 ################################################################################
 atMostOnceThread = AtMostOnceSender()
@@ -222,6 +177,3 @@ lock = Lock()
 lock_received = Lock()
 requests2send = {}
 requestsReceived = {}
-# lock_lifetime = Lock()
-
-# end_lifetime = 0
