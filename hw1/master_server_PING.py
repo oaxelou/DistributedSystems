@@ -16,10 +16,10 @@ MCAST_PORT = 10300
 # SERVICEID = 1
 INITIAL_WEIGHT = 1
 
-LOWER_THRESHOLD = 10
-UPPER_THRESHOLD = 20
+LOWER_THRESHOLD = 2
+UPPER_THRESHOLD = 33
 
-PERIOD = 5
+PERIOD = 0.5
 ################################################################################
 # slave-server checker thread code
 class PingReceiver(Thread):
@@ -50,6 +50,17 @@ class PingReceiver(Thread):
                     (srvcID, currentPingNumber, _, load) = serversdict[server]
                     serversdict[server] = (srvcID, currentPingNumber, False, load)
                     print("no traffic, making only one server active")
+
+                print("Resetting load of each slave server")
+                for server in serversdict:
+                    (srvcID, currentPingNumber, activeFlag, _) = serversdict[server]
+                    serversdict[server] = (srvcID, currentPingNumber, activeFlag, 0)
+
+            if len({k:v for k,v in serversdict.items() if v[2] == True}) == 0 and len(list(serversdict)) > 0:
+                server = random.choice(list({k:v for k,v in serversdict.items() if v[2] == False}))
+                (srvcID, currentPingNumber, _, load) = serversdict[server]
+                serversdict[server] = (srvcID, currentPingNumber, True, load)
+                print("All active servers are down. Going to active someone else")
             # dict((key, value) for key, value in serversdict.items() if value>0)
             # for server in :
             #     serversdict[server] -= 1
@@ -130,9 +141,9 @@ while 1:
             # print("Accidentally removed ", addr, ". Going to add it again")
             if addr not in serversdict:
                 if len(serversdict) == 0:
-                    serversdict[addr] = (message[0], 2, True, 0)
+                    serversdict[addr] = (message[0], 3, True, 0)
                 else:
-                    serversdict[addr] = (message[0], 2, False, 0)
+                    serversdict[addr] = (message[0], 3, False, 0)
 
     # Received answer from a slave server
     elif (addr in serversdict ) and not isinstance(message, tuple):
@@ -148,7 +159,7 @@ while 1:
             serversdict[addr] = (srvcID, currentPingNumber, activeFlag, load - load_freed)
             print("\t Load less than before: ", total_load)
 
-            if (total_load / len({k:v for k,v in serversdict.items() if v[2] == True})) < LOWER_THRESHOLD and len({k:v for k,v in serversdict.items() if v[2] == True}) > 1 :
+            if len({k:v for k,v in serversdict.items() if v[2] == True}) > 1 and (total_load / len({k:v for k,v in serversdict.items() if v[2] == True})) < LOWER_THRESHOLD :
                 print("\n\n\n\n\n\n\n\n Reached lower threshold. Going to deactivate one server. Total #servers: ", len({k:v for k,v in serversdict.items() if v[2] == True}))
                 serverToDeactivate = addr  # autos pou molis afhse thn aithsh
                 print("server to deactivate: ", serversdict[serverToDeactivate])
@@ -162,11 +173,11 @@ while 1:
     elif isinstance(message, tuple) and message[1] == "ADD_SERVER":
         print("A new server is available @ ", addr[0], "&", addr[1])
         # clearing list before adding the server. There is only one server at a time
-        serversdict.clear()
+        # serversdict.clear()
         # adding server in serversdict IF IT IS NOT IN THERE ALREADY
         if addr not in serversdict:
             if len(serversdict) == 0:
-                serversdict[addr] = (message[0], 2, True, 0)
+                serversdict[addr] = (message[0], 3, True, 0)
             else:
                 serversdict[addr] = (message[0], 2, False, 0)
 
@@ -189,71 +200,66 @@ while 1:
             sock.sendto(str(( reqID, "NO-SERVER")).encode(), addr)
         else:
             # koitaei to total_load kai an (total_load / len(serversdict)) > UPPER_THRESHOLD tote thetei kapoion sthn tuxh ws True (active)
-            if ((total_load + 1) / len({k:v for k,v in serversdict.items() if v[2] == True})) > UPPER_THRESHOLD and len({k:v for k,v in serversdict.items() if v[2] == True}) < len(serversdict):
-                print("\n\n\n\n\n\n\n\n Reached upper threshold. Going to activate one more server. Total #servers: ", len({k:v for k,v in serversdict.items() if v[2] == True}))
-                serverToActivate = random.choice(list({k:v for k,v in serversdict.items() if v[2] == False}))
-                print("server to activate: ", serversdict[serverToActivate])
-                (srvcID, currentPingNumber, _, load) = serversdict[serverToActivate]
-                serversdict[serverToActivate] = (srvcID, currentPingNumber, True, load)
-            # vrikei kapoio server (sto part 1 pairnoume to 1o kai monadiko)
-            # server2send2 = random.choice(list(serversdict.keys()))
-            serversAvailable4thisServiceID = {k:v for k,v in serversdict.items() if v[0] == checkServiceID and v[2] == True}
-            print(" serversAvailable4thisServiceID: ", serversAvailable4thisServiceID)
-            if not serversAvailable4thisServiceID:
-                print("\n\nThere are not servers available for this serviceID")
-                sock.sendto(str(( reqID, "NO-SERVER")).encode(), addr)
-                lock.release()
-                continue
-            #  search for the server with the minimum load
-            server2send2 = random.choice(list(serversAvailable4thisServiceID))
-            (_, _, _, minimum) = serversAvailable4thisServiceID[server2send2]
-            for server in serversAvailable4thisServiceID:
-                (_, _, _, load) = serversAvailable4thisServiceID[server]
-                if load < minimum:
-                    minimum = load
-                    server2send2 = server
+            try:
+                if len({k:v for k,v in serversdict.items() if v[2] == True}) < len(serversdict) and ((total_load + 1) / len({k:v for k,v in serversdict.items() if v[2] == True})) > UPPER_THRESHOLD:
+                    print("\n\n\n\n\n\n\n\n Reached upper threshold. Going to activate one more server. Total #servers: ", len({k:v for k,v in serversdict.items() if v[2] == True}))
+                    serverToActivate = random.choice(list({k:v for k,v in serversdict.items() if v[2] == False}))
+                    print("server to activate: ", serversdict[serverToActivate])
+                    (srvcID, currentPingNumber, _, load) = serversdict[serverToActivate]
+                    serversdict[serverToActivate] = (srvcID, currentPingNumber, True, load)
+                # vrikei kapoio server (sto part 1 pairnoume to 1o kai monadiko)
+                # server2send2 = random.choice(list(serversdict.keys()))
+                serversAvailable4thisServiceID = {k:v for k,v in serversdict.items() if v[0] == checkServiceID and v[2] == True}
+                print(" serversAvailable4thisServiceID: ", serversAvailable4thisServiceID)
+                if not serversAvailable4thisServiceID:
+                    print("\n\nThere are not servers available for this serviceID")
+                    sock.sendto(str(( reqID, "NO-SERVER")).encode(), addr)
+                    lock.release()
+                    continue
+                #  search for the server with the minimum load
+                server2send2 = random.choice(list(serversAvailable4thisServiceID))
+                (_, _, _, minimum) = serversAvailable4thisServiceID[server2send2]
+                for server in serversAvailable4thisServiceID:
+                    (_, _, _, load) = serversAvailable4thisServiceID[server]
+                    if load < minimum:
+                        minimum = load
+                        server2send2 = server
 
-            # server2send2 = min(serversdict, key=serversdict.get)
-            # stelnoume ston server pou vrikame olo to d + requestID
-            # print("Found a server to send to: ", server2send2)
+                # server2send2 = min(serversdict, key=serversdict.get)
+                # stelnoume ston server pou vrikame olo to d + requestID
+                # print("Found a server to send to: ", server2send2)
 
-            if (addr[0], addr[1], reqID) not in requestdict:
-                sock.sendto(str((addr, reqID, message)).encode(), server2send2)
-                print(WARNING, "New:", ENDC)
-                # serversdict[server2send2]
-                requestdict[(addr[0], addr[1], reqID)] = (message, INITIAL_WEIGHT, server2send2)
-                total_load += INITIAL_WEIGHT
-                # print("server2send2[0] ", server2send2)
-                (srvcID, currentPingNumber, activeFlag, load) = serversdict[server2send2]
-                serversdict[server2send2] = (srvcID, currentPingNumber, activeFlag, load + 1)
-
-                # print("\tFirst time getting this request. Current load: ", total_load)
-            else:
-                (_, weight, serverHandlingIt) = requestdict[(addr[0], addr[1], reqID)]
-                print(WARNING, "Weight:", weight, ENDC)
-                requestdict[(addr[0], addr[1], reqID)] = (message, weight + 1, serverHandlingIt)
-                total_load += 1
-                if serverHandlingIt in serversdict:
-                    (srvcID, currentPingNumber, activeFlag, load) = serversdict[serverHandlingIt]
-                    serversdict[serverHandlingIt] = (srvcID, currentPingNumber, activeFlag, load + 1)
-                    # print("\tNot! the first time getting this request. Current load: ", total_load)
-                else:
-                    print("Server ", serverHandlingIt, "was handling this request but now he is dead. Going to send it to another one")
-                    print("From search, next best choice: ", server2send2)
+                if (addr[0], addr[1], reqID) not in requestdict:
                     sock.sendto(str((addr, reqID, message)).encode(), server2send2)
-                    requestdict[(addr[0], addr[1], reqID)] = (message, weight + 1, server2send2)
-                    # total_load += weight
-                    (srvcID, currentPingNumber, activeFlag, serverload) = serversdict[server2send2]
-                    serversdict[server2send2] = (srvcID, currentPingNumber, activeFlag, serverload + weight + 1)
+                    print(WARNING, "New: ", (addr[0], addr[1], reqID),  ENDC)
+                    # serversdict[server2send2]
+                    requestdict[(addr[0], addr[1], reqID)] = (message, INITIAL_WEIGHT, server2send2)
+                    total_load += INITIAL_WEIGHT
+                    # print("server2send2[0] ", server2send2)
+                    (srvcID, currentPingNumber, activeFlag, load) = serversdict[server2send2]
+                    serversdict[server2send2] = (srvcID, currentPingNumber, activeFlag, load + 1)
 
+                    # print("\tFirst time getting this request. Current load: ", total_load)
+                else:
+                    (_, weight, serverHandlingIt) = requestdict[(addr[0], addr[1], reqID)]
+                    print(WARNING, "Weight of " , (addr[0], addr[1], reqID), ":", weight, ENDC)
+                    requestdict[(addr[0], addr[1], reqID)] = (message, weight + 1, serverHandlingIt)
+                    total_load += 1
+                    if serverHandlingIt in serversdict:
+                        (srvcID, currentPingNumber, activeFlag, load) = serversdict[serverHandlingIt]
+                        serversdict[serverHandlingIt] = (srvcID, currentPingNumber, activeFlag, load + 1)
+                        # print("\tNot! the first time getting this request. Current load: ", total_load)
+                    else:
+                        print("Server ", serverHandlingIt, "was handling this request but now he is dead. Going to send it to another one")
+                        print("From search, next best choice: ", server2send2)
+                        sock.sendto(str((addr, reqID, message)).encode(), server2send2)
+                        requestdict[(addr[0], addr[1], reqID)] = (message, weight + 1, server2send2)
+                        # total_load += weight
+                        (srvcID, currentPingNumber, activeFlag, serverload) = serversdict[server2send2]
+                        serversdict[server2send2] = (srvcID, currentPingNumber, activeFlag, serverload + weight + 1)
+            except ZeroDivisionError:
+                print("No active server. Trying again: ")
 
-                # na auksanetai kai to load sto serversdict
-
-
-    # else:
-    #     print("Service ID is ok but the message is unrecognizable")
-    #     print("Going to ignore this...")
-    #     sock.sendto("ack - Who are you mate?".encode(), addr)
     lock.release()
 
 

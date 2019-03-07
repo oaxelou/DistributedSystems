@@ -14,7 +14,7 @@ from  threading import Lock
 MCAST_GRP = '224.0.0.1'
 MCAST_PORT = 10300
 
-PERIOD = 5
+PERIOD = 0.5
 serviceID = -1
 ################################################################################
 # slave-server checker thread code

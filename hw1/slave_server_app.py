@@ -13,15 +13,20 @@ def main():
     # global SERVICEID
     register(SERVICEID)
     while 1:
-        (client, reqID, message) = getRequest(SERVICEID)
-        if((client, reqID, message) == ((0,0), 0, 0)):
-            continue
-        if isinstance(message, int):
-            message2send = str(isprime(int(message)))
-            sendReply(client, reqID, message2send)
-        else:
-            message2send = "Not an integer. Don't know what to do with that."
-            sendReply(client, reqID, message2send)
+        try:
+            (client, reqID, message) = getRequest(SERVICEID)
+            if((client, reqID, message) == ((0,0), 0, 0)):
+                continue
+            if isinstance(message, int):
+                message2send = str(isprime(int(message)))
+                sendReply(client, reqID, message2send)
+            else:
+                message2send = "Not an integer. Don't know what to do with that."
+                sendReply(client, reqID, message2send)
+        except KeyboardInterrupt:
+            print("Keyboard Interrupt detected... Going to unregister slave and quit")
+            unregister(SERVICEID)
+            break
 
 
 if __name__ == "__main__":
