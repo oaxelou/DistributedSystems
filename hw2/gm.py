@@ -15,6 +15,7 @@ ENDC   = '\033[0m'
 NON_PRIVILEGED_TCP_PORTS_START = 1024 #non-privileged ports: > 1023
 TCP_PORT = 5016 #non-privileged ports: > 1023   ΑΥΤΟ ΔΕΝ ΧΡΕΙΑΖΕΤΑΙ
 tcp_ports_being_used = []
+udp_addr_to_tcp_port = {}  # dictionary that matches a certain user to the tcp port
 
 GM_MCAST_ADDR = '224.0.0.1'
 GM_MCAST_PORT = 10000
@@ -84,22 +85,43 @@ def establish_tcp_conn():
             s.bind((tcp_user_ip_addr, tcp_port))
             s.listen(1)
             (conn, addr) = s.accept()
-            return (s, conn, tcp_user_ip_addr, tcp_port)
+            return (s, conn, d[1], tcp_port)
         else:
             print("Received unknown message. Waiting for another one")
 ########################################################
-def close_tcp_connection(conn, s, tcp_port, release_port_number):
+def close_tcp_connection(conn, s, tcp_port):
     conn.close()
     s.close()
-    if release_port_number == True:
-        # Sto join den apodesmeuei to port epeidh ekei tha ginetai to polling!
-        remove_tcp_port(tcp_port)
+    remove_tcp_port(tcp_port)
 ################################################################################
 
-def join(conn, args, user_ip, user_gm_tcp_port):
+def inform_connection(tcp_ip, tcp_port, message):
+    print(GREEN, "Going to init TCP socket", ENDC)
+    print(GREEN, tcp_ip, " in port ", tcp_port, ENDC)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((tcp_ip, tcp_port))
+    s.listen(1)
+    print("After listening to socket")
+    (conn, addr) = s.accept()
+
+    conn.send(str(message).encode())
+    print (GREEN, "sent data: ", str(message), ENDC)
+
+    # data = conn.recv(REQUEST_MES_SIZE)
+    # if data:
+    #     print ("received data:", data.decode())
+
+    print(GREEN, "Connection closed?", ENDC)
+    conn.close()
+    s.close()
+    print(GREEN, "Connection closed", ENDC)
+################################################################################
+def join(conn, args, user_udp_addr):
     global groups
+    global udp_addr_to_tcp_port
     g_name, user_id = args
-    print(BLUE, '"', user_id, '" @', user_ip, ' wants to enter group "', g_name, '"', ENDC)
+    print(BLUE, '"', user_id, '" @', user_udp_addr, ' wants to enter group "', g_name, '"', ENDC)
     # random_answer_generator = randint(0,1)
     # print("JOIN: going to return ", ("J-ACK" if (random_answer_generator == 1) else "J-N-ACK"))
     # if random_answer_generator:
@@ -115,25 +137,47 @@ def join(conn, args, user_ip, user_gm_tcp_port):
             conn.send(str(("J-N-ACK", 0)).encode())
         else:
             users_no += 1
-            users_dict[user_id] = (user_ip , user_gm_tcp_port, False)
+            for user in users_dict:
+                (user_ip, user_gm_tcp_port, _) = users_dict[user]
+                inform_connection(user_ip, user_gm_tcp_port, ("JOINED", g_name, user_id, 0)) # not using the last parameter
+
+            # Add new user to the group
+            user_ip_addr, user_tcp_port = user_udp_addr
+            if user_udp_addr in udp_addr_to_tcp_port:
+                no_groups_member_in, user_gm_tcp_port = udp_addr_to_tcp_port[user_udp_addr]
+                udp_addr_to_tcp_port[user_udp_addr] = (no_groups_member_in + 1, user_gm_tcp_port)
+            else:
+                user_gm_tcp_port = find_first_available_tcp_port()
+                udp_addr_to_tcp_port[user_udp_addr] = (1, user_gm_tcp_port)
+            users_dict[user_id] = (user_ip_addr , user_gm_tcp_port, False)
             groups[g_name] = (users_no, grp_addr, users_dict)
-            # inform everyone that a new user joined the group
+
             print(GREEN, user_id, " added in ", g_name)
             print(groups, ENDC)
-            conn.send(str(("J-ACK",(users_no , grp_addr))).encode())
+            conn.send(str(("J-ACK",(users_no , grp_addr, user_gm_tcp_port))).encode())
     else:
         # add group in groups
         grp_addr = (GRPS_MCAST_ADDR, find_first_available_grp_port())
-        users_dict = {user_id: (user_ip , user_gm_tcp_port, True)}
+        user_ip_addr, user_tcp_port = user_udp_addr
+        if user_udp_addr in udp_addr_to_tcp_port:
+            print(GREEN, "INFO: ", udp_addr_to_tcp_port[user_udp_addr])
+            no_groups_member_in, user_gm_tcp_port = udp_addr_to_tcp_port[user_udp_addr]
+            udp_addr_to_tcp_port[user_udp_addr] = (no_groups_member_in + 1, user_gm_tcp_port)
+        else:
+            user_gm_tcp_port = find_first_available_tcp_port()
+            udp_addr_to_tcp_port[user_udp_addr] = (1, user_gm_tcp_port)
+            print(GREEN, "xINFO: ", udp_addr_to_tcp_port[user_udp_addr])
+
+        users_dict = {user_id: (user_ip_addr , user_gm_tcp_port, True)}
         # init Multicast socket for this group? here?
         groups[g_name] = (1, grp_addr, users_dict)
-        print(GREEN, user_id, " added in ", g_name)
+        print(GREEN, user_id, " added in ", g_name, " with gm_tcp_port: ", user_gm_tcp_port)
         print(groups, ENDC)
-        conn.send(str(("J-ACK",(1 , grp_addr))).encode())
+        conn.send(str(("J-ACK",(1 , grp_addr, user_gm_tcp_port))).encode())
 
-
-def leave(conn, args, user_ip, user_gm_tcp_port):
+def leave(conn, args, user_udp_addr):
     global groups
+    global udp_addr_to_tcp_port
     g_name, user_id = args
     print(BLUE, args, ENDC)
     users_no, grp_addr, users_dict = groups[g_name]
@@ -143,11 +187,17 @@ def leave(conn, args, user_ip, user_gm_tcp_port):
         conn.send(str(("L-N-ACK", 0)).encode())
     else:
         (_, user_gm_tcp_port, isSequencer) = users_dict[user_id]
-        print(grp_ports_being_used)
-        print(tcp_ports_being_used)
-        remove_tcp_port(user_gm_tcp_port)
-        print(grp_ports_being_used)
-        print(tcp_ports_being_used)
+        if user_udp_addr not in udp_addr_to_tcp_port:
+            print(BLUE, udp_addr_to_tcp_port, ENDC)
+            print(RED, "SOMETHING IS TERRIBLY WRONG!", ENDC)
+        no_groups_member_in, user_gm_tcp_port = udp_addr_to_tcp_port[user_udp_addr]
+        udp_addr_to_tcp_port[user_udp_addr] = (no_groups_member_in - 1, user_gm_tcp_port)
+        print(BLUE, udp_addr_to_tcp_port, ENDC)
+        print(BLUE, user_gm_tcp_port, ":", no_groups_member_in, ENDC)
+        if no_groups_member_in - 1 == 0:
+            print(RED, "Going to remove ", user_udp_addr, ENDC)
+            remove_tcp_port(user_gm_tcp_port)
+            del udp_addr_to_tcp_port[user_udp_addr]
         if users_no > 1:
             users_no -= 1
             newSequencer = -1
@@ -162,6 +212,10 @@ def leave(conn, args, user_ip, user_gm_tcp_port):
             groups[g_name] = (users_no, grp_addr, users_dict)
 
             # # wait for ack from users
+            for user in users_dict:
+                (user_ip, user_gm_tcp_port, isSequencer) = users_dict[user]
+                inform_connection(user_ip, user_gm_tcp_port, ("LEFT", g_name, user_id, isSequencer)) # not using the last parameter
+
         else:
             print("Empty group!")
             del groups[g_name]
@@ -172,12 +226,11 @@ def leave(conn, args, user_ip, user_gm_tcp_port):
             # close udp Multicast socket of group
         print(GREEN,groups, ENDC)
         conn.send(str(("L-ACK",(1 , grp_addr))).encode())
-
 ########################################################
 # GM code
 
 while 1:
-    (s, conn, user_ip, tcp_port) = establish_tcp_conn()
+    (s, conn, user_udp_addr, tcp_port) = establish_tcp_conn()
     print("\n\nTCP connection established!!")
 
     data = conn.recvfrom(REQUEST_MES_SIZE)
@@ -185,16 +238,20 @@ while 1:
     print("From ", data[1])
     # args: gname and user_id
     command, args = make_tuple(data[0].decode())
+    print(YELLOW, "groups: ", grp_ports_being_used, ENDC)
+    print(YELLOW, "tcps  : ", tcp_ports_being_used, ENDC)
     if command == "JOIN":
-        join(conn, args, user_ip, tcp_port)
-        close_tcp_connection(conn, s, tcp_port, False)
+        join(conn, args, user_udp_addr)
+        close_tcp_connection(conn, s, tcp_port)
     elif command == "LEAVE":
-        leave(conn, args, user_ip, tcp_port)
-        close_tcp_connection(conn, s, tcp_port, True)
+        leave(conn, args, user_udp_addr)
+        close_tcp_connection(conn, s, tcp_port)
     else:
         conn.send("WHAT?".encode())  # default answer when it doesn't know what to do
-        close_tcp_connection(conn, s, tcp_port, True)
+        close_tcp_connection(conn, s, tcp_port)
 
+    print(YELLOW, "groups: ", grp_ports_being_used, ENDC)
+    print(YELLOW, "tcps  : ", tcp_ports_being_used, ENDC)
     print ("sent data:", data)
 
 
