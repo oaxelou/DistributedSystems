@@ -2,6 +2,7 @@
 import socket
 import struct
 import time
+import random
 from ast import literal_eval as make_tuple
 from random import randint
 
@@ -12,7 +13,7 @@ BLUE   = '\033[94m'
 ENDC   = '\033[0m'
 
 NON_PRIVILEGED_TCP_PORTS_START = 1024 #non-privileged ports: > 1023
-TCP_PORT = 5016 #non-privileged ports: > 1023
+TCP_PORT = 5016 #non-privileged ports: > 1023   ΑΥΤΟ ΔΕΝ ΧΡΕΙΑΖΕΤΑΙ
 tcp_ports_being_used = []
 
 GM_MCAST_ADDR = '224.0.0.1'
@@ -115,6 +116,7 @@ def join(conn, args, user_ip, user_gm_tcp_port):
         else:
             users_no += 1
             users_dict[user_id] = (user_ip , user_gm_tcp_port, False)
+            groups[g_name] = (users_no, grp_addr, users_dict)
             # inform everyone that a new user joined the group
             print(GREEN, user_id, " added in ", g_name)
             print(groups, ENDC)
@@ -128,6 +130,49 @@ def join(conn, args, user_ip, user_gm_tcp_port):
         print(GREEN, user_id, " added in ", g_name)
         print(groups, ENDC)
         conn.send(str(("J-ACK",(1 , grp_addr))).encode())
+
+
+def leave(conn, args, user_ip, user_gm_tcp_port):
+    global groups
+    g_name, user_id = args
+    print(BLUE, args, ENDC)
+    users_no, grp_addr, users_dict = groups[g_name]
+
+    if g_name not in groups or user_id not in users_dict:
+        print(RED, user_id, " cannot be deleted from group ", g_name, ENDC)
+        conn.send(str(("L-N-ACK", 0)).encode())
+    else:
+        (_, user_gm_tcp_port, isSequencer) = users_dict[user_id]
+        print(grp_ports_being_used)
+        print(tcp_ports_being_used)
+        remove_tcp_port(user_gm_tcp_port)
+        print(grp_ports_being_used)
+        print(tcp_ports_being_used)
+        if users_no > 1:
+            users_no -= 1
+            newSequencer = -1
+            del users_dict[user_id]
+            if isSequencer:
+                print("Going to choose new Sequencer")
+                newSequencer = random.choice(list(users_dict))
+                (newSeq_ip , newSeq_gm_tcp_port, _) = users_dict[newSequencer]
+                users_dict[newSequencer] = (newSeq_ip , newSeq_gm_tcp_port, True)
+
+            # refresh group info
+            groups[g_name] = (users_no, grp_addr, users_dict)
+
+            # # wait for ack from users
+        else:
+            print("Empty group!")
+            del groups[g_name]
+            # release this port for other groups
+            _, grp_port = grp_addr
+            remove_grp_port(grp_port)
+
+            # close udp Multicast socket of group
+        print(GREEN,groups, ENDC)
+        conn.send(str(("L-ACK",(1 , grp_addr))).encode())
+
 ########################################################
 # GM code
 
@@ -144,7 +189,7 @@ while 1:
         join(conn, args, user_ip, tcp_port)
         close_tcp_connection(conn, s, tcp_port, False)
     elif command == "LEAVE":
-        # kalese thn leave
+        leave(conn, args, user_ip, tcp_port)
         close_tcp_connection(conn, s, tcp_port, True)
     else:
         conn.send("WHAT?".encode())  # default answer when it doesn't know what to do

@@ -3,6 +3,10 @@ import socket
 import time
 import struct
 from ast import literal_eval as make_tuple
+import threading
+from threading import Thread
+from threading import Lock
+import sys
 
 RED    = '\033[91m'
 GREEN  = '\033[92m'
@@ -22,10 +26,22 @@ FAILURE = False
 
 # initialization of the groups I'm in
 groups = {}
+
 available_sock_id = 0
 gm_tcp_port = -1
+tcp_ip = -1
+
+class pollingThreadClass(Thread):
+    def run(self):
+        while 1:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            
+            print("I'm alive!")
+            time.sleep(10)
+
 
 def establish_tcp_conn():
+    global tcp_ip
     global gm_tcp_port
     # Handshake to establish TCP connection (via Multicast)
     udp_s.sendto("TCP".encode(), (GM_MCAST_ADDR, GM_MCAST_PORT))
@@ -70,6 +86,31 @@ def join(gname, my_id):
         return available_sock_id - 1
     else:
         return -1
+
+
+def leave(gsock_id):
+    global groups
+    global user_id
+    global grp_id
+    tcp_socket = establish_tcp_conn()
+    # ready to send leave request to group manager
+    args_to_send = (grp_id, user_id)
+    tcp_socket.send(str(("LEAVE", args_to_send)).encode())
+    print("Wait for GM to receive leave request")
+    data = tcp_socket.recv(REQUEST_MES_SIZE)
+    print("Received data: ", data.decode())
+    tcp_socket.close()
+
+    #check if it was successful or not
+    ack_code, ack_info = make_tuple(data.decode())
+    if ack_code == "L-ACK":
+        del groups[gsock_id]
+        return 1
+    elif ack_code == "L-N-ACK":
+        return 0
+    else:
+        return -1
+
 #################################################
 
 # User code starts here
@@ -77,6 +118,12 @@ def join(gname, my_id):
 udp_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 udp_s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
+
+
+# init polling thread
+pollingThread = pollingThreadClass()
+pollingThread.daemon = True
+pollingThread.start()
 
 grp_id = input("Enter grp_id: ")
 user_id = input("Enter user_id: ")
@@ -88,6 +135,21 @@ if gsock_id >= 0:
     print(GREEN, groups, ENDC)
 else:
     print("Failed at joining group")
+    exit()
+
+# do stuff and then leave
+if len(sys.argv) == 2 and sys.argv[1].isdigit():
+    time.sleep(int(sys.argv[1]))
+else:
+    time.sleep(5)
+leave_res = leave(gsock_id)
+if leave_res == 1:
+    print("Successfully left group stored in sockid: ", gsock_id)
+    print("fuck these losers")
+    print("Groups I belong in:") #should be empty for now
+    print(GREEN, groups, ENDC)
+else:
+    print("Failed at leaving group")
 
 # do stuff
 # Check polling:
