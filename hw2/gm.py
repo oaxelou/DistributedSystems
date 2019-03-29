@@ -108,26 +108,22 @@ def inform_connection(tcp_ip, tcp_port, message):
     conn.send(str(message).encode())
     print (GREEN, "sent data: ", str(message), ENDC)
 
-    # data = conn.recv(REQUEST_MES_SIZE)
-    # if data:
-    #     print ("received data:", data.decode())
-
-    print(GREEN, "Connection closed?", ENDC)
+    # Wait for ACK
+    ack_rcv = conn.recv(REQUEST_MES_SIZE)
+    if ack_rcv:
+        command, _, _, _ = message
+        if ack_rcv.decode() == ("ACK" + command):
+            print (GREEN, "received ack:", ack_rcv.decode(), ENDC)
+        else:
+            print(GREEN, "I didn't receive the ack message I wanted. I received: ", ack_rcv.decode(), ENDC)
     conn.close()
     s.close()
-    print(GREEN, "Connection closed", ENDC)
 ################################################################################
 def join(conn, args, user_udp_addr):
     global groups
     global udp_addr_to_tcp_port
     g_name, user_id = args
     print(BLUE, '"', user_id, '" @', user_udp_addr, ' wants to enter group "', g_name, '"', ENDC)
-    # random_answer_generator = randint(0,1)
-    # print("JOIN: going to return ", ("J-ACK" if (random_answer_generator == 1) else "J-N-ACK"))
-    # if random_answer_generator:
-    #     conn.send("J-ACK".encode())
-    # else:
-    #     conn.send("J-N-ACK".encode())
 
     if g_name in groups:
         # pass # NOT READY YET

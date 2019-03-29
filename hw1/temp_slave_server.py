@@ -51,7 +51,7 @@ while 1:
     message2send = "ack - " + str(message) + " is" + (" not " if not isprime(message) else " ") + "prime"
 
     print("Going to sendto ", addr)
-    sock.sendto(str((SERVICEID, (client[0], client[1], reqID), message2send)).encode(), (MCAST_GRP, MCAST_PORT))
+    sock.sendto(str((client, reqID, message2send)).encode(), (MCAST_GRP, MCAST_PORT))
     print("Sent ",message2send)
 
 sock.close()
