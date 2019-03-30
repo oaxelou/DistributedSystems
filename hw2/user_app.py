@@ -5,7 +5,6 @@ class Receiver(Thread):
     def run(self):
         while 1:
             time.sleep(0.1)
-            # print("Message buckets:")
             for group_id in groups_dict:
                 while 1:
                     (msg_type, msg) = grp_recv(group_id)
@@ -24,8 +23,7 @@ for i in range(groups_no):
     g_id = join(gname, sys.argv[1])
     print("Group id: ", g_id)
     groups_dict[g_id] = gname
-# gsock_id_1 = join("g1", sys.argv[1])
-# gsock_id_2 = join("g2", sys.argv[1])
+
 if -1 in groups_dict:
     print("Error joining the groups!")
     exit()
@@ -48,8 +46,6 @@ try:
             continue
         msg = input("Message: ")
         grp_send(grp_id, msg)
-        # for group_id in groups_dict:
-        #     grp_send(group_id, input("Send message to group" + str(group_id) + ":"))
 except :
     print("!")
 

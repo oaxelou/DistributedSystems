@@ -79,10 +79,10 @@ def establish_tcp_conn():
         except KeyboardInterrupt:
             print("GM going to exit...")
             exit()
-        # print("Received message from ", d[1])
         if d[0].decode() == "TCP":
             tcp_port = find_first_available_tcp_port()
             udp_s.sendto(str(tcp_port).encode(), d[1])
+            print(RED, "TCP CONNECTION ON:", d[1], ENDC)
             tcp_user_ip_addr, _ = d[1]
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

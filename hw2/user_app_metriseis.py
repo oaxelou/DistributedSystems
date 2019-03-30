@@ -7,8 +7,6 @@ class Receiver(Thread):
         msg_no = 0
         print(g_id)
         while 1:
-            # time.sleep(1)
-            # print("Message buckets:")
             (msg_type, msg) = grp_recv(g_id)
             if msg_type == GM_MSG_CODE:
                 print("testingGroup: ", YELLOW, msg, ENDC)
@@ -22,9 +20,6 @@ class Receiver(Thread):
                         break
                 elif msg == "sender: testingMessage":
                     msg_no += 1
-
-            # else:
-            #     break
             if msg_no == MESSAGE_BATCH:
                 print("Reached 10000! Going to send ack back!")
                 grp_send(g_id, "catch'em all")
