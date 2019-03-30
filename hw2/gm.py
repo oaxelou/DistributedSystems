@@ -12,7 +12,7 @@ YELLOW = '\033[93m'
 BLUE   = '\033[94m'
 ENDC   = '\033[0m'
 
-NON_PRIVILEGED_TCP_PORTS_START = 1024 #non-privileged ports: > 1023
+NON_PRIVILEGED_TCP_PORTS_START = 2024 #non-privileged ports: > 1023
 TCP_PORT = 5016 #non-privileged ports: > 1023   ΑΥΤΟ ΔΕΝ ΧΡΕΙΑΖΕΤΑΙ
 tcp_ports_being_used = []
 udp_addr_to_tcp_port = {}  # dictionary that matches a certain user to the tcp port
@@ -32,7 +32,7 @@ groups = {}
 # UDP socket initialization
 udp_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 udp_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-udp_s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+udp_s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 10)
 mreq = struct.pack("4sl", socket.inet_aton(GM_MCAST_ADDR), socket.INADDR_ANY)
 udp_s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 udp_s.bind((GM_MCAST_ADDR, GM_MCAST_PORT))
@@ -85,8 +85,8 @@ def establish_tcp_conn():
             print(RED, "TCP CONNECTION ON:", d[1], ENDC)
             tcp_user_ip_addr, _ = d[1]
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((tcp_user_ip_addr, tcp_port))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 5)
+            s.bind(('', tcp_port))
             s.listen(1)
             (conn, addr) = s.accept()
             return (s, conn, d[1], tcp_port)
@@ -103,8 +103,8 @@ def inform_connection(tcp_ip, tcp_port, message):
     print(GREEN, "Going to init TCP socket", ENDC)
     print(GREEN, tcp_ip, " in port ", tcp_port, ENDC)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((tcp_ip, tcp_port))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 5)
+    s.bind(('', tcp_port))
     s.listen(1)
     print("After listening to socket")
     (conn, addr) = s.accept()
