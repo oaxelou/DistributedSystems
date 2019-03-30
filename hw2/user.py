@@ -8,8 +8,6 @@ from threading import Thread
 from threading import Lock
 import sys
 
-import pprint
-
 RED    = '\033[91m'
 GREEN  = '\033[92m'
 YELLOW = '\033[93m'
@@ -46,6 +44,10 @@ my_seqNO = {}
 messageID = 0
 BACK_OFF = 0.1
 
+NO_MSG_CODE   = 0
+GM_MSG_CODE   = 1
+USER_MSG_CODE = 2
+
 def init_socket(mult_addr):
     ip, port = mult_addr
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -68,24 +70,32 @@ def RM_send(gsock_id, msg):
     global sockets
 
     groups_lock.acquire()
-    (_, users_no, mult_addr, _, _, _, _, acks_list) = groups[gsock_id]
+    (_, users_no, mult_addr, _, _, _, _, acks_dict) = groups[gsock_id]
+    acks_no = 0
+    (msgID, _, _, sender_name) = msg
+    acks_dict[(msgID, sender_name)] = 0
     groups_lock.release()
 
     sockets[gsock_id].sendto(str(msg).encode(), mult_addr)
-    # epanaleiptika n koitaei thn acks_list mexri na tou exoun erthei ola
-    acks_no = 0
+    # epanaleiptika n koitaei thn acks_dict mexri na tou exoun erthei ola
     # print(YELLOW, 'for acks: usersno: ', users_no, ENDC)
     while acks_no < users_no - 1:
         groups_lock.acquire()
-        if len(acks_list) > 0: # not empty
+        # print(YELLOW, "acks_dict: ", acks_dict[(msgID, sender_name)], ENDC)
+        if acks_dict[(msgID, sender_name)] > 0: # not empty
             acks_no += 1
-            # print(YELLOW,"acks got: ", acks_no, ENDC)
-            acks_list.pop()
+            # print(YELLOW, "acks got: ", acks_no, ENDC)
+            if acks_no == users_no - 1:
+                del acks_dict[(msgID, sender_name)]
+        # if len(list(acks_dict)) > 0: # not empty
+        #     acks_no += 1
+        #     print(YELLOW,"acks got: ", acks_no, ENDC)
+        #     acks_dict.pop()
         # else:
             # time.sleep(BACK_OFF)
             # sockets[gsock_id].sendto(str(msg).encode(), mult_addr)
         groups_lock.release()
-        # time.sleep(2)
+        time.sleep(0.001)
     # print(GREEN,"Got all acks for: ", msg, ENDC)
 
 def RM_rcv(gsock_id):
@@ -93,21 +103,24 @@ def RM_rcv(gsock_id):
     global sockets
     global groups
     groups_lock.acquire()
-    (_, _, mult_addr, _, _, _, _, acks_list) = groups[gsock_id]
+    (_, _, mult_addr, _, _, _, _, acks_dict) = groups[gsock_id]
     groups_lock.release()
     while 1:
         data = sockets[gsock_id].recvfrom(1024)
-        (ID_to_check, msg, _, _) = make_tuple(data[0].decode())
+        (ID_to_check, msg, _, sender_name) = make_tuple(data[0].decode())
         # print(BLUE, msg, "from ", data[1], ENDC)
         if not(msg == "ACK"):
             msgID = ID_to_check
             # print(YELLOW,"Going to send ack",ENDC)
-            sockets[gsock_id].sendto(str((0, "ACK", 0, 0)).encode(), data[1])
+            sockets[gsock_id].sendto(str((msgID, "ACK", 0, sender_name)).encode(), mult_addr)
             break
         else:
-            # print(GREEN,"Got ack",ENDC)
             groups_lock.acquire()
-            acks_list.append(msg)
+            if (ID_to_check, sender_name) in acks_dict:
+                acks_dict[(ID_to_check, sender_name)] += 1
+                # print(GREEN,"Got ack",ENDC)
+            # else:
+                # print("ACK not for me")
             groups_lock.release()
         # print(BLUE, "show must go on", ENDC)
     # print(GREEN,"received: ", msg, ENDC)
@@ -124,17 +137,17 @@ class Sender(Thread):
         global messageID
 
         groups_lock.acquire()
-        (grp_name, users_no, mult_addr, my_id, _, _, _, acks_list) = groups[self.gsock_id]
+        (grp_name, users_no, mult_addr, my_id, _, _, _, _) = groups[self.gsock_id]
         groups_lock.release()
 
         while 1:
             msg_lock.acquire()
             if msges_to_send[self.gsock_id]:
-                # print("Found a msg to send!")
                 msg = msges_to_send[self.gsock_id].pop()
+                # print("Found a msg to send: ", msg)
             else:
                 msg_lock.release()
-                time.sleep(0.1)
+                time.sleep(0.001)
                 continue
             msg_lock.release()
 
@@ -142,6 +155,7 @@ class Sender(Thread):
             # RM_send
             # sockets[self.gsock_id].sendto(str(msg).encode(), mult_addr)
             RM_send(self.gsock_id, msg)
+            print("The message has been sent")
             messageID += 1
 ################################################################################
 class Receiver(Thread):
@@ -168,7 +182,7 @@ class Receiver(Thread):
                 print("Going to terminate the thread")
                 break
 
-            print(RED, "Received: ", data[0], ENDC)
+            # print(RED, "Received: ", data[0], ENDC)
             (msgID, msg, seqNO, sender_name) = make_tuple(data[0].decode())
             if seqNO == -1:  # Did not receive a seq_no_msg
                 msgID = (data[1], msgID)
@@ -186,23 +200,20 @@ class Receiver(Thread):
                 if old_seqNO != -1 and seqNO == -1:
                     msgdict[msgID] = (msg, old_seqNO, sender_name)
                     groups_lock.acquire()
-                    (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, _, acks_list) = groups[self.gsock_id]
-                    # print(YELLOW, "RECEIVED DICTIONARY: ", msg_received, ENDC)
-                    msg_received[msgID] = msgdict[msgID]
+                    (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, _, acks_dict) = groups[self.gsock_id]
+                    # msg_received[msgID] = msgdict[msgID]
+                    msg_received[old_seqNO] = msgdict[msgID]
+                    # print(msgID, ":", msgdict[msgID] , "added to msg_received")
                     del msgdict[msgID]
-                    # groups[self.gsock_id] = (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, acks_list)
-                    # msg_ready_to_deliver[msgID] = msgdict[msgID]
-                    # print(BLUE, "RECEIVED DICTIONARY: ", msg_received, ENDC)
                     groups_lock.release()
                 elif old_seqNO == -1 and seqNO != -1:
                     msgdict[msgID] = (old_msg, seqNO, old_sender_name)
                     groups_lock.acquire()
-                    (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, _, acks_list) = groups[self.gsock_id]
-                    # print(YELLOW, "RECEIVED DICTIONARY: ", msg_received, ENDC)
-                    msg_received[msgID] = msgdict[msgID]
+                    (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, _, acks_dict) = groups[self.gsock_id]
+                    # msg_received[msgID] = msgdict[msgID]
+                    msg_received[seqNO] = msgdict[msgID]
+                    # print(msgID, ":", msgdict[msgID] , "ADDED to msg_received")
                     del msgdict[msgID]
-                    # groups[self.gsock_id] = (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, acks_list)
-                    # print(BLUE, "RECEIVED DICTIONARY: ", msg_received, ENDC)
                     groups_lock.release()
             else:
                 msgdict[msgID] = (msg, seqNO, sender_name)
@@ -216,7 +227,7 @@ class pollingThreadClass(Thread):
     def run(self):
         while 1:
             if gm_tcp_port == -1:
-                time.sleep(0.01)
+                time.sleep(0.0001)
                 continue
 
             polling_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -243,34 +254,22 @@ class pollingThreadClass(Thread):
             # Deal with the new information
             command, grp, u_id, I_am_new_sequencer = make_tuple(data.decode())
             if command == "JOINED":
-                print(YELLOW, "New member in ", grp, ": ", u_id, ENDC)
+                # print(YELLOW, "New member in ", grp, ": ", u_id, ENDC)
                 groups_lock.acquire()
                 for sockid in groups:
-                    (gname, users_no, mult_addr, my_id, isSequencer, msg_received, gm_msges, acks_list) = groups[sockid]
+                    (gname, users_no, mult_addr, my_id, isSequencer, msg_received, gm_msges, acks_dict) = groups[sockid]
                     if gname == grp:
-                        groups[sockid] = (gname, users_no+1, mult_addr, my_id, isSequencer, msg_received, gm_msges, acks_list)
-                        # print(RED, "JOINED: groups dict:")
-                        # print_dict(groups)
-                        # print(ENDC)
-                        # add this message to the msg_received group
+                        groups[sockid] = (gname, users_no+1, mult_addr, my_id, isSequencer, msg_received, gm_msges, acks_dict)
                         gm_msg = u_id + " joined " + grp
                         gm_msges.append(gm_msg)
                         break
                 groups_lock.release()
             elif command == "LEFT":
-                print(YELLOW, u_id, " left ", grp, ENDC)
-                # if I_am_new_sequencer:
-                    # print(YELLOW, "and I am the new Sequencer!", ENDC)
-                # else:
-                    # print(YELLOW, "I still am not the Sequencer", ENDC)
                 groups_lock.acquire()
                 for sockid in groups:
-                    (gname, users_no, mult_addr, my_id, _, msg_received, gm_msges, acks_list) = groups[sockid]
+                    (gname, users_no, mult_addr, my_id, _, msg_received, gm_msges, acks_dict) = groups[sockid]
                     if gname == grp:
-                        groups[sockid] = (gname, users_no-1, mult_addr, my_id, I_am_new_sequencer, msg_received, gm_msges, acks_list)
-                        # print(RED, "LEFT: groups dict:")
-                        # print_dict(groups)
-                        # print(ENDC)
+                        groups[sockid] = (gname, users_no-1, mult_addr, my_id, I_am_new_sequencer, msg_received, gm_msges, acks_dict)
                         gm_msg = u_id + " left " + grp
                         gm_msges.append(gm_msg)
                         break
@@ -298,7 +297,7 @@ def establish_tcp_conn():
             # print("Successfully connected to TCP")
             break
         except ConnectionRefusedError as notConnectedError:
-            time.sleep(1) # isws na vgei meta
+            time.sleep(0.1) # isws na vgei meta
             # print("Going to try again")
     return s
 
@@ -330,7 +329,7 @@ def join(gname, my_id):
         else:
             isSequencer = False
         groups_lock.acquire()
-        groups[available_sock_id] = (gname, users_no, multicast_addr, my_id, isSequencer, {}, [], [])
+        groups[available_sock_id] = (gname, users_no, multicast_addr, my_id, isSequencer, {}, [], {})
 
         my_seqNO[available_sock_id] = 0
         current_seqNO[available_sock_id] = 0
@@ -395,35 +394,30 @@ def grp_recv(gsock_id):
     global my_seqNO
 
     groups_lock.acquire()
-    (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, gm_msges, acks_list) = groups[gsock_id]
+    (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, gm_msges, acks_dict) = groups[gsock_id]
     if (not msg_received) and (not gm_msges):
-        print("No message available")
+        # print("No message available")
         groups_lock.release()
-        return (0,0)
+        return (NO_MSG_CODE, 0)
 
-    while 1:
-        if gm_msges:
-            msg = gm_msges.pop()
-            print(RED, "GM message: ", msg, ENDC)
-        else:
-            break
-    print("And now the simple messages")
-    while 1:
-        found = False
-        for msgID in msg_received:
-            (msg, seqNO, sender_name) = msg_received[msgID]
-            if seqNO == my_seqNO[gsock_id]:
-                print(BLUE, "from ", sender_name , ": ", msg, ENDC)
-                my_seqNO[gsock_id] += 1
-                found = True
-                break
-        if found:
-            del msg_received[msgID]
-        else:
-            break
-    # groups[gsock_id] = (grp_name, users_no, mult_addr, my_id, isSequencer, msg_received, acks_list)
+    if gm_msges:
+        return_msg = (GM_MSG_CODE, gm_msges.pop())
+        groups_lock.release()
+        return return_msg
+
+    # print(GREEN, "Messages received: ", msg_received, ENDC)
+    # print(BLUE, "My seqNO: ", my_seqNO[gsock_id], ENDC)
+    if my_seqNO[gsock_id] in msg_received:
+        (msg, seqNO, sender_name) = msg_received[my_seqNO[gsock_id]]
+        msg = sender_name + ": " + msg
+        return_msg = (USER_MSG_CODE, msg)
+        del msg_received[my_seqNO[gsock_id]]
+        my_seqNO[gsock_id] += 1
+        groups_lock.release()
+        return return_msg
+
     groups_lock.release()
-    return (0,0)
+    return (NO_MSG_CODE, 0)
 #################################################
 # User code starts here
 
@@ -431,52 +425,49 @@ udp_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 udp_s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
 
-# sock = init_socket()
-
 # init polling thread
 pollingThread = pollingThreadClass()
 pollingThread.daemon = True
 pollingThread.start()
 
-print(GREEN,"@@@@ It's going to enter 2 groups under the name 'ker'")
-print("and then it's going to send hello to both of the groups, then wait 2 secs")
-print("and then it's going to print all the messages it has received from both groups")
-print("and then wait again and then print again the messages (it should be empty)")
-print("and then terminate.",ENDC)
-# input("Press enter to start: ")
-time.sleep(3)
-gsock_id_1 = join("g1", sys.argv[1])
-gsock_id_2 = join("g2", sys.argv[1])
-if gsock_id_1 == -1:# or gsock_id_2 == -1:
-    exit()
+# # time.sleep(3)
+# gsock_id_1 = join("g1", sys.argv[1])
+# gsock_id_2 = join("g2", sys.argv[1])
+# if gsock_id_1 == -1:# or gsock_id_2 == -1:
+#     exit()
+#
+# input("Press enter to start communication: ")
+#
+# try:
+#     while 1:
+#         print("Message buckets:")
+#         while 1:
+#             (msg_type, msg) = grp_recv(gsock_id_1)
+#             if msg_type == GM_MSG_CODE:
+#                 print("G1: ", YELLOW, msg, ENDC)
+#             elif msg_type == USER_MSG_CODE:
+#                 print("G1: ", BLUE, msg, ENDC)
+#             else:
+#                 break
+#         while 1:
+#             (msg_type, msg) = grp_recv(gsock_id_2)
+#             if msg_type == GM_MSG_CODE:
+#                 print("G2: ", YELLOW, msg, ENDC)
+#             elif msg_type == USER_MSG_CODE:
+#                 print("G2: ", BLUE, msg, ENDC)
+#             else:
+#                 break
+#         time.sleep(4)
+#         # if sys.argv[1] == "oly":
+#         grp_send(gsock_id_1, input("Send message to grp1: "))
+#         grp_send(gsock_id_2, input("Send message to grp2: "))
+#         time.sleep(4)
+# except KeyboardInterrupt:
+#     print("Pressed ctrl+C to exit!")
+#
+# print("Going to leave")
+# leave_res_1 = leave(gsock_id_1)
+# leave_res_2 = leave(gsock_id_2)
 
-time.sleep(3)
-if len(sys.argv) > 1 and sys.argv[1] == "oly":
-    time.sleep(1)
-    grp_send(gsock_id_1, "hello to grp1")
-    grp_send(gsock_id_2, "hello to grp2")
-# time.sleep(2)
-# print("1st group:")
-# grp_recv(gsock_id_1)
-# print("2nd group:")
-# grp_recv(gsock_id_2)
-# time.sleep(2)
-# time.sleep(5)
-for i in range(1):
-    time.sleep(5)
-    print("1st group:")
-    grp_recv(gsock_id_1)
-    print("2nd group:")
-    grp_recv(gsock_id_2)
-time.sleep(2)
-
-print("Going to leave")
-leave_res_1 = leave(gsock_id_1)
-leave_res_2 = leave(gsock_id_2)
-
-# time.sleep(2)
-# print("It's over boys...")
-# time.sleep(2)
-
-# leave
-udp_s.close()
+# # leave
+# udp_s.close()

@@ -74,7 +74,11 @@ def remove_grp_port(grp_port):
 def establish_tcp_conn():
     while 1:
         print("\n\n\nGoing to wait for a udp message")
-        d = udp_s.recvfrom(10)
+        try:
+            d = udp_s.recvfrom(10)
+        except KeyboardInterrupt:
+            print("GM going to exit...")
+            exit()
         # print("Received message from ", d[1])
         if d[0].decode() == "TCP":
             tcp_port = find_first_available_tcp_port()
