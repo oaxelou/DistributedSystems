@@ -44,7 +44,6 @@ class Sender(Thread):
         global send_buf
         global sock
 
-        # always try to receive stuff
         while 1:
             if send_buf:
                 send_buf_lock.acquire()
@@ -105,6 +104,8 @@ receiverthread.start()
 
 while 1:
     if recv_buf:
+        #  take a request from recv_buf (the first one),
+        #  process it and delete it from buffer
         recv_buf_lock.acquire()
         msg2send = recv_buf[0]
 
@@ -120,7 +121,8 @@ while 1:
         recv_buf.pop(0)
         recv_buf_lock.release()
 
-        # construct reply tuple/msg
+        # construct reply tuple/msg and add to send_buf
+        # sender thread will take care of it
         reply = (reply_text, reqID, addr)
         send_buf_lock.acquire()
         send_buf.append(reply)

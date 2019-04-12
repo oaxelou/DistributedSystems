@@ -8,8 +8,13 @@ from threading import Lock
 import sys
 import random
 
+UDP_SIZE = 1024
+
 send_buf = []
 send_buf_lock = Lock()
+
+recv_buf = []
+recv_buf_lock = Lock()
 
 class Sender(Thread):
     def run(self):
@@ -19,10 +24,46 @@ class Sender(Thread):
         while 1:
             if send_buf:
                 send_buf_lock.acquire()
-                message = send_buf[item]
-                # resend until ?????
+                # etsi ta stelnei kyklika i guess
+                # GUESS AGAIN YOU FUCKING IDIOT
+                message = send_buf[0]
                 sock.sendto(str(message).encode(), (SERVER_IP, SERVER_PORT))
+                print(send_buf)
+                print("sent request: ", message)
+
+                # request will not be removed from send_buf
+                # until receiver thread receives the corresponding reply
+                # SOOOO Receiver thread has access to send_buf
                 send_buf_lock.release()
+
+class Receiver(Thread):
+    def run(self):
+        global recv_buf
+
+        while 1:
+            d = sock.recvfrom(UDP_SIZE)
+            data = d[0]
+            # address is not needed: always expecting things from server
+            # maybe check it is actually the server who sent sth
+            (text, reqID) = make_tuple(data.decode())
+            reply = (text, reqID)
+
+            print("received reply: ", reply)
+
+            recv_buf_lock.acquire()
+            recv_buf.append(reply)
+            for item in recv_buf:
+                if reqID in item:
+                # sbhse to apo to send_buf
+                    send_buf_lock.acquire()
+                    for item2 in send_buf:
+                        if reqID in item2:
+                            send_buf.pop(item2)
+                            break
+                    send_buf_lock.release()
+                    break
+            recv_buf_lock.release()
+
 
 ################################### MAIN #######################################
 
@@ -38,25 +79,30 @@ SERVER_PORT = int(sys.argv[2])
 # print(SERVER_PORT, SERVER_IP)
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind('')
+sock.bind(('', 2000))
 
-# init sender thread
-senderthread = Sender()
-senderthread.daemon = True
-senderthread.start()
 
 reqID = 0
 
 # put messages in send_buffer
 for i in range (10):
+    print("IN REQUEST PRODUCING")
     if i % 2 == 0:
-        text = "hello i am" + i
+        text = "hello i am " + str(i)
     else:
-        text = "my name is" + i
+        text = "my name is " + str(i)
     reqID += 1
     message = (text, reqID)
-    send_buf.append(msg)
+    send_buf_lock.acquire()
+    send_buf.append(message)
+    send_buf_lock.release()
 
-# wait to receive all replies
-while send_buf:
-    data = sock.recvfrom(1024)
+# print(send_buf)
+
+# init sender and receiver thread
+senderthread = Sender()
+receiverthread = Receiver()
+senderthread.daemon = True
+receiverthread.daemon = True
+senderthread.start()
+receiverthread.start()
