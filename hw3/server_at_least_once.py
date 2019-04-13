@@ -8,12 +8,18 @@ from threading import Lock
 import sys
 import random
 
+RED    = '\033[91m'
+GREEN  = '\033[92m'
+YELLOW = '\033[93m'
+BLUE   = '\033[94m'
+ENDC   = '\033[0m'
+
 UDP_SIZE = 1024
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-recv_buf = []
+recv_buf = {}
 recv_buf_lock = Lock()
-send_buf = []
+send_buf = {}
 send_buf_lock = Lock()
 
 
@@ -31,11 +37,12 @@ class Receiver(Thread):
             addr = d[1]
 
             (text, reqID) = make_tuple(data.decode())
+            # text = data
             req = (text, reqID, addr)
             recv_buf_lock.acquire()
-            recv_buf.append(req)
+            recv_buf[reqID] = req
+            print("received:", recv_buf[reqID])
             recv_buf_lock.release()
-            # print(recv_buf)
 
 ############################    SENDER THREAD   ################################
 
@@ -47,12 +54,17 @@ class Sender(Thread):
         while 1:
             if send_buf:
                 send_buf_lock.acquire()
-                msg2send = send_buf[0]
-                addr = msg2send[2]
 
-                sock.sendto(str(msg2send).encode(), (addr))
+                # take reply with the min reqID
+                min_reqID = min(send_buf, key=send_buf.get)
+                reply2send = send_buf[min_reqID]
 
-                send_buf.pop(0)
+                print(GREEN, "going to send reply: ", reply2send, ENDC)
+
+                addr = reply2send[2]
+                sock.sendto(str(reply2send).encode(), (addr))
+
+                del send_buf[min_reqID]
                 send_buf_lock.release()
 
 #######################    SERVER ADDRESS FUNCTIONS   ##########################
@@ -104,26 +116,31 @@ receiverthread.start()
 
 while 1:
     if recv_buf:
-        #  take a request from recv_buf (the first one),
+        #  take a request from recv_buf (the one with the smaller reqID),
         #  process it and delete it from buffer
         recv_buf_lock.acquire()
-        msg2send = recv_buf[0]
+        min_reqID = min(recv_buf, key=recv_buf.get)
+        msg2proccess = recv_buf[min_reqID]
 
-        text = msg2send[0]
-        reqID = msg2send[1]
-        addr = msg2send[2]
+        print("main thread: going to process:", msg2proccess)
+
+        text = msg2proccess[0]
+        reqID = msg2proccess[1]
+        addr = msg2proccess[2]
+
         # compute
         if "hello" in text:
             reply_text = "hi"
         else:
             reply_text = "nice"
 
-        recv_buf.pop(0)
-        recv_buf_lock.release()
+        del recv_buf[min_reqID]
 
         # construct reply tuple/msg and add to send_buf
-        # sender thread will take care of it
         reply = (reply_text, reqID, addr)
+        recv_buf_lock.release()
+
+        # sender thread will take care of it
         send_buf_lock.acquire()
-        send_buf.append(reply)
+        send_buf[min_reqID] = reply
         send_buf_lock.release()
