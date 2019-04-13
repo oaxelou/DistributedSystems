@@ -121,8 +121,8 @@ while 1:
         recv_buf_lock.acquire()
         min_reqID = min(recv_buf, key=recv_buf.get)
         msg2proccess = recv_buf[min_reqID]
-
-        print("main thread: going to process:", msg2proccess)
+        print("going for req:", min_reqID)
+        print("main thread: going to process:", min_reqID,":", msg2proccess)
 
         text = msg2proccess[0]
         reqID = msg2proccess[1]
@@ -130,7 +130,7 @@ while 1:
 
         # compute
         if "hello" in text:
-            reply_text = "hi"
+            reply_text = "hihi"
         else:
             reply_text = "nice"
 

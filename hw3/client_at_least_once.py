@@ -9,6 +9,7 @@ import sys
 import random
 
 UDP_SIZE = 1024
+RESEND_TIMEOUT = 0.01
 
 send_buf = {}
 send_buf_lock = Lock()
@@ -22,28 +23,20 @@ class Sender(Thread):
         global SERVER_IP, SERVER_PORT
 
         while 1:
-            time.sleep(1)
             if send_buf:
                 send_buf_lock.acquire()
-                # etsi ta stelnei kyklika i guess
-                # GUESS AGAIN YOU FUCKING IDIOT
-
-                # message = send_buf[0]
-                # sock.sendto(str(message).encode(), (SERVER_IP, SERVER_PORT))
-                # print("sent request:", message)
 
                 for req in send_buf:
                     message = send_buf[req]
                     sock.sendto(str(message).encode(), (SERVER_IP, SERVER_PORT))
                     print("sent request: ", message)
 
-                print(send_buf)
                 # request will not be removed from send_buf
                 # until receiver thread receives the corresponding reply
                 # SOOOO Receiver thread has access to send_buf
                 send_buf_lock.release()
+                time.sleep(RESEND_TIMEOUT)
 
-        print("end of thread")
 
 class Receiver(Thread):
     def run(self):
@@ -54,35 +47,42 @@ class Receiver(Thread):
             data = d[0]
             # address is not needed: always expecting things from server
             # maybe check it is actually the server who sent sth
-            (text, reqID, addr) = make_tuple(data.decode())
-            reply = (text, reqID)
-
-            print("received reply: ", reply)
-
-            # recv_buf_lock.acquire()
-            # recv_buf.append(reply)
-            # for item in recv_buf:
-            #     if reqID in item:
-            #     # sbhse to apo to send_buf
-            #         send_buf_lock.acquire()
-            #         for item2 in send_buf:
-            #             if reqID in item2:
-            #                 send_buf.pop(item2)
-            #                 break
-            #         send_buf_lock.release()
-            #         break
-            # recv_buf_lock.release()
 
             recv_buf_lock.acquire()
 
-            recv_buf[reqID] = reply
+            (text, reqID, addr) = make_tuple(data.decode())
+            reply = (text, reqID)
+            if reqID not in recv_buf.keys():
+                recv_buf[reqID] = reply
+                print("received reply: ", reply)
+
             send_buf_lock.acquire()
             if reqID in send_buf.keys():
                 del send_buf[reqID]
-            send_buf_lock.release()
 
+            send_buf_lock.release()
             recv_buf_lock.release()
 
+#######################    CLIENT PORT FUNCTION   ##########################
+
+def find_avl_port(sock, MY_IP):
+    UDP_PORT = 1
+    while True:
+        try:
+            sock.bind((MY_IP, UDP_PORT))
+        except PermissionError:
+            # print("Another app is using this port. I am going to try try with: ", UDP_PORT)
+            UDP_PORT += 1
+            continue
+        except OSError:
+            # print("Another app is using this port. I am going to try try with: ", UDP_PORT)
+            UDP_PORT += 1
+            continue
+
+            break
+
+        print("I am listening on port: ", UDP_PORT)
+        return UDP_PORT
 
 ################################### MAIN #######################################
 
@@ -98,7 +98,9 @@ SERVER_PORT = int(sys.argv[2])
 # print(SERVER_PORT, SERVER_IP)
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(('', 2000))
+
+MY_PORT = find_avl_port(sock, '')
+# sock.bind(('', MY_PORT))
 
 
 reqID = -1
