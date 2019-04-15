@@ -28,7 +28,7 @@ recv_buf_lock = Lock()
 import os
 
 fid_local_dictionary = {}  # virtual_fid: (fid, pos)
-next_local_fid = 0
+# next_local_fid = 0
 # INIT_POS = 0
 reqID = -1
 
@@ -64,7 +64,7 @@ def print_menu():
 def mynfs_open(fname, mode):
     global fid_local_dictionary
     # global INIT_POS
-    global next_local_fid
+    # global next_local_fid
     global reqID
 
     # instead of opening that locally, send RPC to server
@@ -87,6 +87,11 @@ def mynfs_open(fname, mode):
     print("Received answer for request: ", reqID)  # den to vgazei apo to recv_buf gia na anagnwrizei ta diplotupa!!!!
     print(BLUE, "And the reply is: ", recv_buf[reqID], ENDC)
 
+    next_local_fid = 0
+    while next_local_fid in fid_local_dictionary.keys():
+        next_local_fid += 1
+        time.sleep(1)
+    print("\n\nnext_local_fid: ", next_local_fid, "\n")
     fid_local_dictionary[next_local_fid] = (recv_buf[reqID][0], 0, recv_buf[reqID][1])         #  apothikeuese kai to onoma tou arxeiou kai na to ektupwnei sto read
     recv_buf_lock.release()
     print("--------------------")
@@ -109,10 +114,6 @@ def mynfs_read(virtual_fid, nofBytes):
     send_buf_lock.acquire()
     send_buf[reqID] = request
     send_buf_lock.release()
-
-    # print(fid_local_dictionary)
-    # fid_local_dictionary[next_local_fid] = (fid, INIT_POS)
-    # print(fid_local_dictionary)
 
     recv_buf_lock.acquire()
     while reqID not in recv_buf:
@@ -179,15 +180,10 @@ def mynfs_close(virtual_fid):
     global fid_local_dictionary
     if virtual_fid not in fid_local_dictionary:
         return FileNotFoundErrorCode
-    (fid, _) = fid_local_dictionary[virtual_fid]
+    (fid, _, _) = fid_local_dictionary[virtual_fid]
     del fid_local_dictionary[virtual_fid]
-    # os.close(fid)                                                 # ONLY LOCALLY
-    print("--------------------")
-    print("File " + str(virtual_fid) + " removed")
-    print("--------------------")
 
 ############################### END OF NFS STUFF ###############################
-
 class Sender(Thread):
     def run(self):
         global send_buf
@@ -234,8 +230,6 @@ class Receiver(Thread):
             if reqID in send_buf.keys():
                 del send_buf[reqID]
             send_buf_lock.release()
-
-
 ################################### MAIN #######################################
 
 # print("Enter server address and port:")
@@ -291,7 +285,6 @@ while True:
             print("File does not exist...")
             exit()
 
-
     elif option == 'r':
         fid = int(input("Enter fid: "))
         nofBytes = int(input("Enter nofBytes: "))
@@ -302,7 +295,6 @@ while True:
             print("I read ", bytes_read)
             print("And the value is: ", bytes_buf)
 
-
     elif option == 'w':
         fid = int(input("Enter fid: "))
         bytes_buf = input("Enter bytes to write: ")
@@ -311,7 +303,6 @@ while True:
             print("Bad File Descriptor")
         else:
             print("I wrote", bytes_written, "bytes")
-
 
     elif option == 's':
         fid = int(input("Enter fid: "))
@@ -326,6 +317,10 @@ while True:
     elif option == 'p':
         print(GREEN, fid_local_dictionary, ENDC)
 
+    elif option == 'c':
+        fid = int(input("Enter fid: "))
+        mynfs_close(fid)
+        print("File closed")
 
     elif option == 'exit':
         print("Byeeeeee")

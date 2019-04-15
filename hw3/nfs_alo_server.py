@@ -173,11 +173,6 @@ def find_avl_port(sock, MY_IP):
 ############################## MAIN THREAD #####################################
 
 MY_IP = get_IP()
-#  socket binding happens in here
-MY_PORT = find_avl_port(sock, MY_IP)
-
-print(MY_IP)
-print(MY_PORT)
 
 # Open server logfile
 if (len(sys.argv) == 2) and (sys.argv[1] == "old_session"):
@@ -192,7 +187,27 @@ if (len(sys.argv) == 2) and (sys.argv[1] == "old_session"):
         fid, fname, f_mode, f_timestamp = fid_dictionary[virtual_fid_key]
         fid = my_open(fname, f_mode)
         fid_dictionary[virtual_fid_key] = (fid, fname, f_mode, f_timestamp)
+
+    # get old port number
+    port_logfile_mode = O_CREAT | O_RDWR
+    port_logfile_fid = my_open("port_logfile.txt", port_logfile_mode)
+    size = my_seek(port_logfile_fid, 0, SEEK_END)
+    MY_PORT = int(my_read(port_logfile_fid, 0, size))
+    print("old port: ", MY_PORT)
+    #  socket binding happens in here
+    MY_PORT = find_avl_port(sock, MY_IP)
+else:
+    #  socket binding happens in here
+    MY_PORT = find_avl_port(sock, MY_IP)
+    print("going to store port: ", MY_PORT)
+    port_logfile_mode = O_CREAT | O_TRUNC | O_RDWR
+    port_logfile_fid = my_open("port_logfile.txt", port_logfile_mode)
+    my_write(port_logfile_fid, 0, str(MY_PORT))
+    os.close(port_logfile_fid)
+
 print("Initial fid_dictionary: ", fid_dictionary)
+print(MY_IP)
+print(MY_PORT)
 
 time.sleep(4)
 
