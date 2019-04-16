@@ -114,7 +114,7 @@ class Receiver(Thread):
             addr = d[1]
 
             (serviceType, args, reqID) = make_tuple(data.decode())
-            req = (serviceType, args, reqID, addr) #                                     vale to serviceType sthn arxh tou tuple (kai allakse kai ston kwdika to pws diaxeirizetai to tuple)
+            req = (serviceType, args, reqID, addr)   #                              vale to serviceType sthn arxh tou tuple (kai allakse kai ston kwdika to pws diaxeirizetai to tuple)
 
             recv_buf_lock.acquire()
             recv_buf[arithmos_proteraiothtas] = req
@@ -163,6 +163,15 @@ class GarbageCollector(Thread):
 
             # diatrexei to fid_dictionary
             # svhnei wsa exoun timestamp megalutero tou
+            current_time = time.time()
+            for virtual_fid in list(fid_dictionary.keys()):
+                fid, _, _, f_timestamp = fid_dictionary[virtual_fid]
+                if (current_time - f_timestamp > LIFESPAN):
+                    print(RED, "going to delete", fid_dictionary[virtual_fid], "after", LIFESPAN, ENDC)
+                    del fid_dictionary[virtual_fid]
+                    print(RED, "sashay away", ENDC)
+                    os.close(fid)
+
             fid_dictionary_lock.release()
 
 #######################    SERVER ADDRESS FUNCTIONS   ##########################
@@ -301,7 +310,7 @@ while 1:
                     print("File does not exist...")
                     exit()
 
-                fid_dictionary[next_fid] = (f, fname, flags, 0)
+                fid_dictionary[next_fid] = (f, fname, flags, time.time())
 
                 # anoigoume me O_TRUNC
                 logfile_fid = my_open("server_logfile.log", O_CREAT | O_TRUNC | O_RDWR)
@@ -319,8 +328,10 @@ while 1:
             if virtual_fid not in fid_dictionary.keys():
                 reply_data = (FileNotFoundErrorCode, 0, 0, 0)
             else:
-                fid, _, _, _ = fid_dictionary[virtual_fid]
+                fid, fname, flags, ts = fid_dictionary[virtual_fid]
                 try:
+                    fid_dictionary[virtual_fid] = (fid, fname, flags, time.time())
+                    print(BLUE, "changed timestamp:", fid_dictionary[virtual_fid], ENDC)
                     bytesRead = my_read(fid, pos, nofBytes)
                     reply_data = (len(bytesRead), bytesRead, my_seek(fid, 0, SEEK_CUR), my_seek(fid, 0, SEEK_END))
                 except OSError:
@@ -335,8 +346,10 @@ while 1:
             if virtual_fid not in fid_dictionary.keys():
                 reply_data = (FileNotFoundErrorCode, 0, 0)
             else:
-                fid, _, _, _ = fid_dictionary[virtual_fid]
+                fid, fname, flags, ts = fid_dictionary[virtual_fid]
                 try:
+                    fid_dictionary[virtual_fid] = (fid, fname, flags, time.time())
+                    print(BLUE, "changed timestamp:", fid_dictionary[virtual_fid], ENDC)
                     bytes_written = my_write(fid, pos, write_buf)
                     reply_data = (bytes_written, my_seek(fid, 0, SEEK_CUR), my_seek(fid, 0, SEEK_END))
                 except OSError:

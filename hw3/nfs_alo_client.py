@@ -90,7 +90,7 @@ def mynfs_open(fname, mode):
         next_local_fid += 1
         time.sleep(1)
     print("\n\nnext_local_fid: ", next_local_fid, "\n")
-    fid_local_dictionary[next_local_fid] = (recv_buf[reqID][0], 0, recv_buf[reqID][1])         #  apothikeuese kai to onoma tou arxeiou kai na to ektupwnei sto read
+    fid_local_dictionary[next_local_fid] = (fname, recv_buf[reqID][0], 0, recv_buf[reqID][1])         #  apothikeuese kai to onoma tou arxeiou kai na to ektupwnei sto read
     recv_buf_lock.release()
     print("--------------------")
     print("OK: File " + str(next_local_fid) + " has been created")
@@ -105,7 +105,9 @@ def mynfs_read(virtual_fid, nofBytes):
 
     if virtual_fid not in fid_local_dictionary:
         return (FileNotFoundErrorCode, 0)
-    (fid, pos, _) = fid_local_dictionary[virtual_fid]
+    (fname, fid, pos, _) = fid_local_dictionary[virtual_fid]
+
+    original_nofBytes = nofBytes
 
     reqID += 1
     request = ("read", (fid, pos, nofBytes), reqID)
@@ -124,11 +126,23 @@ def mynfs_read(virtual_fid, nofBytes):
     (nofBytes, bytes_read, new_pos, new_size) = recv_buf[reqID]
     recv_buf_lock.release()
 
-    #                                               tsekare edw ti exei epistrepsei o server
-    #                                               an einai error code (FileNotFoundErrorCode) tote steile RPC open
-    #                                               kai perimene gia apanthsh kai meta ksanadokimase me RPC read
+    # tsekare edw ti exei epistrepsei o server
+    # an einai error code (FileNotFoundErrorCode) tote steile RPC open
+    # kai perimene gia apanthsh kai meta ksanadokimase me RPC read
 
-    fid_local_dictionary[virtual_fid] = (virtual_fid, new_pos, new_size)
+    if nofBytes == FileNotFoundErrorCode:
+        del fid_local_dictionary[virtual_fid]
+        f = mynfs_open(fname, O_CREAT | O_RDWR) # call my_open
+        if f == FileExistsErrorCode:
+            print("File already exists...")
+            exit()
+        elif f == FileNotFoundErrorCode:
+            print("File does not exist...")
+            exit()
+        (nofBytes2ndTry, bytes_read2ndTry) = mynfs_read(f, original_nofBytes)
+        return (nofBytes2ndTry, bytes_read2ndTry.decode())
+
+    fid_local_dictionary[virtual_fid] = (fname, fid, new_pos, new_size)
     return (nofBytes, bytes_read.decode())
 
 def mynfs_write(virtual_fid, buf):
@@ -137,7 +151,9 @@ def mynfs_write(virtual_fid, buf):
 
     if virtual_fid not in fid_local_dictionary:
         return FileNotFoundErrorCode
-    (fid, pos, _) = fid_local_dictionary[virtual_fid]
+    (fname, fid, pos, _) = fid_local_dictionary[virtual_fid]
+
+    original_buf = buf
 
     reqID += 1
     request = ("write", (fid, pos, buf), reqID)
@@ -159,7 +175,20 @@ def mynfs_write(virtual_fid, buf):
     #                                               tsekare edw ti exei epistrepsei o server
     #                                               an einai error code (FileNotFoundErrorCode) tote steile RPC open
     #                                               kai perimene gia apanthsh kai meta ksanadokimase me RPC write
-    fid_local_dictionary[virtual_fid] = (virtual_fid, new_pos, new_size)
+
+    if bytes_written == FileNotFoundErrorCode:
+        del fid_local_dictionary[virtual_fid]
+        f = mynfs_open(fname, O_CREAT | O_RDWR) # call my_open
+        if f == FileExistsErrorCode:
+            print("File already exists...")
+            exit()
+        elif f == FileNotFoundErrorCode:
+            print("File does not exist...")
+            exit()
+        bytes_written2ndTry = mynfs_write(f, original_buf)
+        return bytes_written2ndTry
+
+    fid_local_dictionary[virtual_fid] = (fname, fid, new_pos, new_size)
     return bytes_written
 
 def mynfs_seek(virtual_fid, pos, whence):
@@ -167,7 +196,7 @@ def mynfs_seek(virtual_fid, pos, whence):
 
     if virtual_fid not in fid_local_dictionary:
         return FileNotFoundErrorCode
-    (fid, old_pos, size) = fid_local_dictionary[virtual_fid]
+    (fname, fid, old_pos, size) = fid_local_dictionary[virtual_fid]
     # to set it to the position that the app sees (in case SEEK_CUR is set)
     if whence == SEEK_SET:
         start_pos = 0
@@ -178,14 +207,14 @@ def mynfs_seek(virtual_fid, pos, whence):
     else:
         return WrongWhenceCode
 
-    fid_local_dictionary[virtual_fid] = (fid, start_pos + pos, size)
+    fid_local_dictionary[virtual_fid] = (fname, fid, start_pos + pos, size)
     return start_pos + pos
 
 def mynfs_close(virtual_fid):
     global fid_local_dictionary
     if virtual_fid not in fid_local_dictionary:
         return FileNotFoundErrorCode
-    (fid, _, _) = fid_local_dictionary[virtual_fid]
+    (_, fid, _, _) = fid_local_dictionary[virtual_fid]
     del fid_local_dictionary[virtual_fid]
 
 ############################### END OF NFS STUFF ###############################
