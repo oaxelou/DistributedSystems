@@ -41,7 +41,12 @@ FileExistsErrorCode = -1
 FileNotFoundErrorCode = -2
 BadFileDescriptorCode = -2
 
+# Garbage Collection
+BOOGIEMAN_SLEEPING_TIME = 10 # 60*60 # 1 wra hehehehe
+LIFESPAN = 60 # 1 lepto lifespan
+
 fid_dictionary = {}
+fid_dictionary_lock = Lock()
 next_fid = 0
 arithmos_proteraiothtas = 0
 ############################################
@@ -140,6 +145,26 @@ class Sender(Thread):
                 del send_buf[min_reqID]
                 send_buf_lock.release()
 
+#########################    GARBAGE COLLECTOR THREAD   ########################
+
+class GarbageCollector(Thread):
+    def run(self):
+        global send_buf
+        global sock
+
+        while 1:
+            time.sleep(BOOGIEMAN_SLEEPING_TIME)
+            print(YELLOW, "-> Boogieman is awake", ENDC)
+
+            # tsekarei to fid_dictionary
+            fid_dictionary_lock.acquire()
+            print("fid_dictionary:")
+            print(YELLOW, fid_dictionary, ENDC)
+
+            # diatrexei to fid_dictionary
+            # svhnei wsa exoun timestamp megalutero tou
+            fid_dictionary_lock.release()
+
 #######################    SERVER ADDRESS FUNCTIONS   ##########################
 def get_IP():
     find_ip_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -214,11 +239,15 @@ time.sleep(4)
 # init sender and receiver thread
 senderthread = Sender()
 receiverthread = Receiver()
+garbagecollectorthread = GarbageCollector()
+
 senderthread.daemon = True
 receiverthread.daemon = True
+garbagecollectorthread.daemon = True
+
 senderthread.start()
 receiverthread.start()
-
+garbagecollectorthread.start()
 
 while 1:
     recv_buf_lock.acquire()
@@ -233,6 +262,9 @@ while 1:
                 min_arithmos_proter = arithm_prot_key
 
         msg2proccess = recv_buf[min_arithmos_proter]
+        del recv_buf[min_arithmos_proter]
+        recv_buf_lock.release()
+
         print("going for req:", min_arithmos_proter)
         print("main thread: going to process:", min_arithmos_proter,":", msg2proccess)
 
@@ -241,6 +273,7 @@ while 1:
         reqID = msg2proccess[2]
         addr = msg2proccess[3]
 
+        fid_dictionary_lock.acquire()
         # compute
         if serviceType == "open":
             fileAlreadyOpened = False
@@ -313,11 +346,10 @@ while 1:
 
         else:
             reply_data = "I don't know what you are talking about. Are you talking to me?"
-        del recv_buf[min_arithmos_proter]
-        recv_buf_lock.release()
+
+        fid_dictionary_lock.release()
 
         # construct reply tuple/msg and add to send_buf
-
         reply = (reply_data, reqID, addr)
 
         # sender thread will take care of it
@@ -326,3 +358,4 @@ while 1:
         send_buf_lock.release()
     else:
         recv_buf_lock.release()
+        time.sleep(0.1)

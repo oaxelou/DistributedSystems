@@ -15,7 +15,7 @@ BLUE   = '\033[94m'
 ENDC   = '\033[0m'
 
 UDP_SIZE = 1024
-RESEND_TIMEOUT = 0.01
+RESEND_TIMEOUT = 0.1
 
 send_buf = {}
 send_buf_lock = Lock()
@@ -28,8 +28,6 @@ recv_buf_lock = Lock()
 import os
 
 fid_local_dictionary = {}  # virtual_fid: (fid, pos)
-# next_local_fid = 0
-# INIT_POS = 0
 reqID = -1
 
 # na kaneis sunarthsh na dilegei to prwto diathesimo virtual_fid
@@ -126,6 +124,10 @@ def mynfs_read(virtual_fid, nofBytes):
     (nofBytes, bytes_read, new_pos, new_size) = recv_buf[reqID]
     recv_buf_lock.release()
 
+    #                                               tsekare edw ti exei epistrepsei o server
+    #                                               an einai error code (FileNotFoundErrorCode) tote steile RPC open
+    #                                               kai perimene gia apanthsh kai meta ksanadokimase me RPC read
+
     fid_local_dictionary[virtual_fid] = (virtual_fid, new_pos, new_size)
     return (nofBytes, bytes_read.decode())
 
@@ -154,6 +156,9 @@ def mynfs_write(virtual_fid, buf):
     (bytes_written, new_pos, new_size) = recv_buf[reqID]
     recv_buf_lock.release()
 
+    #                                               tsekare edw ti exei epistrepsei o server
+    #                                               an einai error code (FileNotFoundErrorCode) tote steile RPC open
+    #                                               kai perimene gia apanthsh kai meta ksanadokimase me RPC write
     fid_local_dictionary[virtual_fid] = (virtual_fid, new_pos, new_size)
     return bytes_written
 
@@ -232,16 +237,10 @@ class Receiver(Thread):
             send_buf_lock.release()
 ################################### MAIN #######################################
 
-# print("Enter server address and port:")
-# SERVER_IP = input("address: ")
-# SERVER_PORT = int(input("port: "))
-
 if (len(sys.argv) != 3):
     print("args: server IP, server port")
-    sys.exit()
 SERVER_IP = sys.argv[1]
 SERVER_PORT = int(sys.argv[2])
-# print(SERVER_PORT, SERVER_IP)
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
