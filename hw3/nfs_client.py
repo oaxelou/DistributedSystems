@@ -1,20 +1,29 @@
-# basic nfs server.
-# Just checks the command and:
-# 1)  OPEN      a file and stores the fid
-# 2)  READ from a file
-# 3) WRITE   on a file
-
+import socket
+import time
+import struct
+from ast import literal_eval as make_tuple
+import threading
+from threading import Thread
+from threading import Lock
+import sys
+import random
 import os
 
-fid_local_dictionary = {}  # virtual_fid: (fid, pos)
-next_local_fid = 0
-INIT_POS = 0
+################################# NFS STUFF ####################################
+CACHE_TOTAL_SIZE = 32          # max megethos mnhmhs cache
+CACHE_BLOCK_SIZE = 10          # kanonika einai 1024
+CACHE_BLOCK_FRESHNESS = 20     # kanonika poso?
+cache_size = 0
 
-# na kaneis sunarthsh na dilegei to prwto diathesimo virtual_fid
+fid_local_dictionary = {}      # virtual_fid: (fid, pos)
+reqID = -1
+
 ############################################
 O_CREAT = os.O_CREAT
+
 O_EXCL = os.O_EXCL
 O_TRUNC = os.O_TRUNC
+
 O_RDWR = os.O_RDWR
 O_RDONLY = os.O_RDONLY
 O_WRONLY = os.O_WRONLY
@@ -26,171 +35,275 @@ SEEK_END = os.SEEK_END
 FileExistsErrorCode = -1
 FileNotFoundErrorCode = -2
 BadFileDescriptorCode = -2
-############################################
-def my_open(fname, mode):
-    try:
-        fid = os.open(fname, mode)
-    except FileExistsError:
-        print("File already exists. Going to return FileExistsErrorCode")
-        return FileExistsErrorCode
-    except FileNotFoundError:
-        print("File does not exist. Going to return FileNotFoundErrorCode")
-        return FileNotFoundErrorCode
-    return fid
+WrongWhenceCode = -3
+PermissionDeniedErrorCode = -4
 
-def my_seek(fid, pos, whence):
-    try:
-        current_pos = os.lseek(fid, pos, whence)
-    except OSError:
-        print("Bad file descriptor. Terminating program...")
-        exit()
-    return current_pos
+############################# OTHER STUFF  ####################################
+RESEND_TIMEOUT = 0.1
+UDP_SIZE = 1024
 
-def my_read(fid, pos, nofBytes):
-    current_pos = my_seek(fid, pos, SEEK_SET)
-    print("current position: ", current_pos)
-    if current_pos == BadFileDescriptorCode or current_pos == None:
-        print("Bad file descriptor (seek). Going to terminate...")
-        exit()
-    try:
-        bytesRead = os.read(fid, nofBytes)
-    except OSError:
-        print("Bad file descriptor. Terminating program...")
-        return None
-    return bytesRead
+send_buf = {}
+send_buf_lock = Lock()
 
-def my_write(fid, pos, buf):
-    current_pos = my_seek(fid, pos, SEEK_SET)
-    print("current position: ", current_pos)
-    if current_pos == BadFileDescriptorCode:
-        print("Bad file descriptor (seek). Going to terminate...")
-        exit()
-    try:
-        bytesWritten = os.write(fid, buf)
-    except OSError:
-        print("Bad file descriptor. Terminating program...")
-        return BadFileDescriptorCode
-    return bytesWritten
-############################################
-############################################
+recv_buf = {}
+recv_buf_lock = Lock()
+
+RED    = '\033[91m'
+GREEN  = '\033[92m'
+YELLOW = '\033[93m'
+BLUE   = '\033[94m'
+ENDC   = '\033[0m'
+
+############################### RPC FUNCTIONS ###############################
+def openRPC(fname, mode):
+    global reqID
+    reqID += 1
+    request = ("open", (fname, mode), reqID)
+    send_buf_lock.acquire()
+    send_buf[reqID] = request
+    send_buf_lock.release()
+
+    recv_buf_lock.acquire()
+    while reqID not in recv_buf:
+        recv_buf_lock.release()
+        time.sleep(0.001)
+        recv_buf_lock.acquire()
+
+    recv_buf_lock.release()
+    return recv_buf[reqID]
+
+def readRPC(fid, key):
+    global reqID
+
+    reqID += 1
+    request = ("read", (fid, CACHE_BLOCK_SIZE * key, CACHE_BLOCK_SIZE), reqID)
+    send_buf_lock.acquire()
+    send_buf[reqID] = request
+    send_buf_lock.release()
+
+    recv_buf_lock.acquire()
+    while reqID not in recv_buf:
+        recv_buf_lock.release()
+        time.sleep(0.001)
+        recv_buf_lock.acquire()
+
+    (nofBytes, bytes_read, new_pos, new_size) = recv_buf[reqID]
+    recv_buf_lock.release()
+    return (nofBytes, bytes_read, new_pos, new_size)
+
+def writeRPC(fid, pos, buf):
+    global reqID
+    reqID += 1
+    request = ("write", (fid, pos, buf), reqID)
+    send_buf_lock.acquire()
+    send_buf[reqID] = request
+    send_buf_lock.release()
+
+    recv_buf_lock.acquire()
+    while reqID not in recv_buf:
+        recv_buf_lock.release()
+        time.sleep(0.001)
+        recv_buf_lock.acquire()
+
+    (bytes_written, new_pos, new_size) = recv_buf[reqID]
+    recv_buf_lock.release()
+    return (bytes_written, new_pos, new_size)
+
+############################### NFS FUNCTIONS ###############################
 def mynfs_open(fname, mode):
     global fid_local_dictionary
-    global INIT_POS
-    global next_local_fid
-    fid = my_open(fname, mode)                                    # ONLY LOCALLY
-    print(fid_local_dictionary)
-    fid_local_dictionary[next_local_fid] = (fid, INIT_POS)
-    print(fid_local_dictionary)
-    next_local_fid += 1
-    print("--------------------")
-    print("OK: File " + str(next_local_fid-1) + " has been created")
-    print("--------------------")
-    return next_local_fid-1
 
-def mynfs_close(virtual_fid):
-    global fid_local_dictionary
-    if virtual_fid not in fid_local_dictionary:
-        return FileNotFoundErrorCode
-    (fid, _) = fid_local_dictionary[virtual_fid]
-    del fid_local_dictionary[virtual_fid]
-    os.close(fid)                                                 # ONLY LOCALLY
-    print("--------------------")
-    print("File " + str(virtual_fid) + " removed")
-    print("--------------------")
+    (fid, new_size) = openRPC(fname, mode)
+    if fid >= 0:
+        next_local_fid = 0
+        while next_local_fid in fid_local_dictionary.keys():
+            next_local_fid += 1
+        fid_local_dictionary[next_local_fid] = (fname, mode, fid, 0, new_size, {})
+        next_local_fid += 1
+        return next_local_fid-1
+    else:
+        return fid
 
 def mynfs_read(virtual_fid, nofBytes):
     global fid_local_dictionary
-    try:
-        if virtual_fid not in fid_local_dictionary:
-            return FileNotFoundErrorCode
-        (fid, pos) = fid_local_dictionary[virtual_fid]
-        bytesRead = my_read(fid, pos, nofBytes)                        # ONLY LOCALLY
-    except OSError:
-        print("Bad file descriptor. Terminating program...")
-        return None
-    return bytesRead
+    global cache_size
+
+    if virtual_fid not in fid_local_dictionary:
+        return (FileNotFoundErrorCode, 0)
+    (fname, flags, fid, pos, old_size, cache) = fid_local_dictionary[virtual_fid]
+
+
+    key = int(pos / CACHE_BLOCK_SIZE)
+
+    RPCservicesWillBeNeeded = True
+    if key in cache:
+        new_size = old_size
+
+        if time.time() - cache[key][1] > CACHE_BLOCK_FRESHNESS:
+            print(RED, "Cache does not contain a fresh copy of this block!", ENDC)
+            RPCservicesWillBeNeeded = True
+        else:
+            RPCservicesWillBeNeeded = False
+
+    if RPCservicesWillBeNeeded:
+        while True:
+            (nofBytes_rtrned, bytes_read, new_pos, new_size) = readRPC(fid, key)
+            if nofBytes_rtrned == FileNotFoundErrorCode:
+                del fid_local_dictionary[virtual_fid]
+                f = mynfs_open(fname, flags & 1110111111) # call my_open
+                if f == FileExistsErrorCode:
+                    print("File already exists...")
+                    exit()
+                elif f == FileNotFoundErrorCode:
+                    print("File does not exist...")
+                    exit()
+            else:
+                break
+
+        # update cache
+        if cache_size + CACHE_BLOCK_SIZE > CACHE_TOTAL_SIZE:
+            print(RED, "Cache limits are reached.", ENDC)
+            for file in fid_local_dictionary:
+                (_, _, _, _, _, cache_to_delete_from) = fid_local_dictionary[file]
+                if cache_to_delete_from:
+                    del cache_to_delete_from[random.choice(list(cache_to_delete_from))]
+                    cache_size -= CACHE_BLOCK_SIZE
+                    break
+
+        if key in cache:
+            cache_size -= CACHE_BLOCK_SIZE
+
+        cache[key] = (bytes_read.decode(), time.time())
+        cache_size += CACHE_BLOCK_SIZE
+
+    bytes_to_return = cache[key][0][pos % CACHE_BLOCK_SIZE:pos % CACHE_BLOCK_SIZE + nofBytes]
+
+    fid_local_dictionary[virtual_fid] = (fname, flags, fid, pos + len(bytes_to_return), new_size, cache)
+    return (len(bytes_to_return), bytes_to_return)
 
 def mynfs_write(virtual_fid, buf):
     global fid_local_dictionary
-    try:
-        if virtual_fid not in fid_local_dictionary:
-            return FileNotFoundErrorCode
-        print("REACHED THIS")
-        (fid, pos) = fid_local_dictionary[virtual_fid]
-        bytesWritten = my_write(fid, pos, buf)                    # ONLY LOCALLY
-    except OSError:
-        print("Bad file descriptor. Terminating program...")
-        return BadFileDescriptorCode
-    return bytesWritten
+    global cache_size
 
-def mynfs_seek(virtual_fid, pos, whence):
-    global fid_local_dictionary
-    try:
-        if virtual_fid not in fid_local_dictionary:
-            return FileNotFoundErrorCode
-        (fid, old_pos) = fid_local_dictionary[virtual_fid]
-        # to set it to the position that the app sees (in case SEEK_CUR is set)
-        current_pos = os.lseek(fid, old_pos, SEEK_SET)            # ONLY LOCALLY
-        current_pos = os.lseek(fid, pos, whence)                  # ONLY LOCALLY
-        fid_local_dictionary[virtual_fid] = (fid, current_pos)
-    except OSError:
-        print("Bad file descriptor. Terminating program...")
-        return BadFileDescriptorCode
-    return current_pos
-############################################
-############################################
-def print_menu():
-    menu_str  = "-----------------------\n" + "| Options:\n"
-    menu_str += "| -> Open      a file (o)\n" + "| -> Read from a file (r)\n"
-    menu_str += "| -> Write  on a file (w)\n"
-    menu_str += "| -> Close     a file (c)\n"
-    menu_str += "| -> Print local dict (p)\n"
-    menu_str += "| -> Exit (exit)\n"
-    menu_str += "-----------------------\n" + "Enter answer: "
-    return menu_str
-############################################
+    if virtual_fid not in fid_local_dictionary:
+        return FileNotFoundErrorCode
+    (fname, flags, fid, pos, _, cache) = fid_local_dictionary[virtual_fid]
 
-def main():
+    if flags & 3 == 0:
+        return PermissionDeniedErrorCode
+    original_buf = buf
     while True:
-        option = input(print_menu())
-        if   option == 'o':
-            fname = input("Enter file name to open: ") # Get name of file
-            f = mynfs_open(fname, O_CREAT | O_RDWR) # call my_open
+        (bytes_written, new_pos, new_size) = writeRPC(fid, pos, buf)
+        if bytes_written == FileNotFoundErrorCode:
+            del fid_local_dictionary[virtual_fid]
+            f = mynfs_open(fname, flags & 1110111111)
             if f == FileExistsErrorCode:
                 print("File already exists...")
                 exit()
             elif f == FileNotFoundErrorCode:
                 print("File does not exist...")
                 exit()
-        elif option == 'r':
-            fid = int(input("Enter fid: "))
-            bytes_to_read = int(input("Enter bytes to read: ")) # ask for bytes
-            bytesRead = mynfs_read(fid, bytes_to_read)
-            if bytesRead == None:
-                print("Bad file descriptor (read). Going to terminate...")
-                exit()
-            elif bytesRead == FileNotFoundErrorCode:
-                print("Bad file descriptor (read). Going to ignore this")
-                continue
-            print(bytesRead.decode())
-        elif option == 'w':
-            fid = int(input("Enter fid: "))
-            str_to_write = input("Enter string to write: ") # ask for string
-            bytesWritten = mynfs_write(fid, str_to_write.encode())
-            print("bytes written: ", bytesWritten)
-            if bytesWritten == FileNotFoundErrorCode:
-                print("Bad file descriptor (write). Going to ignore this")
-                continue
-        elif option == 'c':
-            if mynfs_close(int(input("Enter fid: "))) == FileNotFoundErrorCode:
-                print("Bad file descriptor (write). Going to ignore this")
-        elif option == 'p':
-            print(fid_local_dictionary)
-        elif option == 'exit':
-            break
         else:
-            print("Going to ignore this answer")
+            break
 
-if __name__ == "__main__":
-    main()
-print("Main is over")
+    for key in range(int(pos / CACHE_BLOCK_SIZE), int(new_pos / CACHE_BLOCK_SIZE) + 1):
+        if key in cache:
+            cache_size -= CACHE_BLOCK_SIZE
+            del cache[key]
+
+    fid_local_dictionary[virtual_fid] = (fname, flags, fid, new_pos, new_size, cache)
+    return bytes_written
+
+def mynfs_seek(virtual_fid, pos, whence):
+    global fid_local_dictionary
+
+    if virtual_fid not in fid_local_dictionary:
+        return FileNotFoundErrorCode
+    (fname, flags, fid, old_pos, size, cache) = fid_local_dictionary[virtual_fid]
+    # to set it to the position that the app sees (in case SEEK_CUR is set)
+    if whence == SEEK_SET:
+        start_pos = 0
+    elif whence == SEEK_END:
+        start_pos = size
+    elif whence == SEEK_CUR:
+        start_pos = old_pos
+    else:
+        return WrongWhenceCode
+
+    fid_local_dictionary[virtual_fid] = (fname, flags, fid, start_pos + pos, size, cache)
+    return start_pos + pos
+
+def mynfs_close(virtual_fid):
+    global cache_size
+    global fid_local_dictionary
+
+    if virtual_fid not in fid_local_dictionary:
+        return FileNotFoundErrorCode
+    (_, _, _,  _, _,cache) = fid_local_dictionary[virtual_fid]
+    for key in cache:
+        cache_size -= CACHE_BLOCK_SIZE
+    del fid_local_dictionary[virtual_fid]
+    return 0
+
+def mynfs_set_cache(size, validity):
+    CACHE_TOTAL_SIZE = size
+    CACHE_BLOCK_FRESHNESS = validity
+
+################### THREADS FOR MESSAGE SENDING/RECEIVING ######################
+class Sender(Thread):
+    def run(self):
+        global send_buf
+        global SERVER_IP, SERVER_PORT
+
+        while 1:
+            send_buf_lock.acquire()
+            if send_buf:
+
+                for req in send_buf:
+                    message = send_buf[req]
+                    sock.sendto(str(message).encode(), (SERVER_IP, SERVER_PORT))
+                send_buf_lock.release()
+                time.sleep(RESEND_TIMEOUT)
+            else:
+                send_buf_lock.release()
+
+class Receiver(Thread):
+    def run(self):
+        global recv_buf
+
+        while 1:
+            d = sock.recvfrom(UDP_SIZE)
+            data = d[0]
+            # address is not needed: always expecting things from server
+            # maybe check it is actually the server who sent sth
+
+            recv_buf_lock.acquire()
+
+            (reply, reqID) = make_tuple(data.decode())
+            if reqID not in recv_buf.keys():
+                recv_buf[reqID] = reply
+            else:
+                print(RED, "DIPLOTYPO", ENDC)
+
+            recv_buf_lock.release()
+            send_buf_lock.acquire()
+            if reqID in send_buf.keys():
+                del send_buf[reqID]
+            send_buf_lock.release()
+
+################################################################################
+
+if (len(sys.argv) != 3):
+    print("args: server IP, server port")
+SERVER_IP = sys.argv[1]
+SERVER_PORT = int(sys.argv[2])
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+# init sender and receiver thread
+senderthread = Sender()
+receiverthread = Receiver()
+senderthread.daemon = True
+receiverthread.daemon = True
+senderthread.start()
+receiverthread.start()
