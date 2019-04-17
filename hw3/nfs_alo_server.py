@@ -43,7 +43,7 @@ BadFileDescriptorCode = -2
 
 # Garbage Collection
 BOOGIEMAN_SLEEPING_TIME = 10 # 60*60 # 1 wra hehehehe
-LIFESPAN = 40 # 1 lepto lifespan
+LIFESPAN = 10 # 1 lepto lifespan
 
 fid_dictionary = {}
 fid_dictionary_lock = Lock()
@@ -291,6 +291,7 @@ while 1:
             for virtual_fid_key in fid_dictionary.keys():
                 fid, fname_value, _, _ = fid_dictionary[virtual_fid_key]
                 if fname == fname_value:
+                    print("Going to check if flag is ", O_CREAT | O_EXCL)
                     if flags == O_CREAT | O_EXCL:
                         reply_data = (FileExistsErrorCode, 0)
                         fileAlreadyOpened = True
@@ -301,30 +302,30 @@ while 1:
                         # put in buffer & continue?
 
             if fileAlreadyOpened == False: # open new file
-                f = my_open(fname, O_CREAT | O_RDWR) # call my_open
+                f = my_open(fname, flags) # call my_open
                 if f == FileExistsErrorCode:
                     print("File already exists...")
-                    exit()
+                    reply_data = (FileExistsErrorCode, 0)
                 elif f == FileNotFoundErrorCode:
                     print("File does not exist...")
-                    exit()
+                    reply_data = (FileNotFoundErrorCode, 0)
+                else:
+                    next_avail_fid = 0
+                    while next_avail_fid in fid_dictionary.keys():
+                        next_avail_fid += 1
+                        time.sleep(1)
+                    print("\n\nnext_avail_fid: ", next_avail_fid, "\n")
 
-                next_avail_fid = 0
-                while next_avail_fid in fid_dictionary.keys():
+                    fid_dictionary[next_avail_fid] = (f, fname, flags, time.time())
+
+                    # anoigoume me O_TRUNC
+                    logfile_fid = my_open("server_logfile.log", O_CREAT | O_TRUNC | O_RDWR)
+                    print("Reopened logfile with O_TRUNC")
+                    my_write(logfile_fid, 0, str(fid_dictionary))
+
                     next_avail_fid += 1
-                    time.sleep(1)
-                print("\n\nnext_avail_fid: ", next_avail_fid, "\n")
-
-                fid_dictionary[next_avail_fid] = (f, fname, flags, time.time())
-
-                # anoigoume me O_TRUNC
-                logfile_fid = my_open("server_logfile.log", O_CREAT | O_TRUNC | O_RDWR)
-                print("Reopened logfile with O_TRUNC")
-                my_write(logfile_fid, 0, str(fid_dictionary))
-
-                next_avail_fid += 1
-                print(RED, fid_dictionary, ENDC)
-                reply_data = (next_avail_fid-1, my_seek(f, 0, SEEK_END))
+                    print(RED, fid_dictionary, ENDC)
+                    reply_data = (next_avail_fid-1, my_seek(f, 0, SEEK_END))
 
         elif serviceType == "read":
             virtual_fid = args[0]
