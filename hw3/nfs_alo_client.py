@@ -30,6 +30,11 @@ import os
 fid_local_dictionary = {}  # virtual_fid: (fid, pos)
 reqID = -1
 
+CACHE_TOTAL_SIZE = 32  # max megethos mnhmhs cache
+CACHE_BLOCK_SIZE = 10  # kanonika einai 1024
+CACHE_BLOCK_FRESHNESS = 15 # kanonika poso?
+cache_size = 0
+
 # na kaneis sunarthsh na dilegei to prwto diathesimo virtual_fid
 ############################################
 O_CREAT = os.O_CREAT
@@ -90,7 +95,7 @@ def mynfs_open(fname, mode):
         next_local_fid += 1
         time.sleep(1)
     print("\n\nnext_local_fid: ", next_local_fid, "\n")
-    fid_local_dictionary[next_local_fid] = (fname, recv_buf[reqID][0], 0, recv_buf[reqID][1])         #  apothikeuese kai to onoma tou arxeiou kai na to ektupwnei sto read
+    fid_local_dictionary[next_local_fid] = (fname, mode, recv_buf[reqID][0], 0, recv_buf[reqID][1], {})         #  apothikeuese kai to onoma tou arxeiou kai na to ektupwnei sto read
     recv_buf_lock.release()
     print("--------------------")
     print("OK: File " + str(next_local_fid) + " has been created")
@@ -102,56 +107,97 @@ def mynfs_open(fname, mode):
 def mynfs_read(virtual_fid, nofBytes):
     global fid_local_dictionary
     global reqID
+    global cache_size
 
     if virtual_fid not in fid_local_dictionary:
         return (FileNotFoundErrorCode, 0)
-    (fname, fid, pos, _) = fid_local_dictionary[virtual_fid]
+    (fname, flags, fid, pos, old_size, cache) = fid_local_dictionary[virtual_fid]
 
-    original_nofBytes = nofBytes
 
-    reqID += 1
-    request = ("read", (fid, pos, nofBytes), reqID)
-    send_buf_lock.acquire()
-    send_buf[reqID] = request
-    send_buf_lock.release()
+    key = int(pos / CACHE_BLOCK_SIZE)
+    print("Going to check", key, "cache block if it's empty")
 
-    recv_buf_lock.acquire()
-    while reqID not in recv_buf:
-        recv_buf_lock.release()
-        time.sleep(0.01)
+    RPCservicesWillBeNeeded = True
+    if key in cache:
+        print("Yes it's here!")
+        # return (len(cache[key]), cache[key])  # einai lathos pros to paron
+        new_size = old_size
+
+        if time.time() - cache[key][1] > CACHE_BLOCK_FRESHNESS:
+            print(RED, "Cache does not contain a fresh copy of this block!", ENDC)
+            RPCservicesWillBeNeeded = True
+        else:
+            RPCservicesWillBeNeeded = False
+
+
+    if RPCservicesWillBeNeeded:
+        print("No it's not here! Going to request it from server")
+        # RPC starting...
+        original_nofBytes = nofBytes
+
+        reqID += 1
+        request = ("read", (fid, CACHE_BLOCK_SIZE * key, CACHE_BLOCK_SIZE), reqID)
+        send_buf_lock.acquire()
+        send_buf[reqID] = request
+        send_buf_lock.release()
+
         recv_buf_lock.acquire()
+        while reqID not in recv_buf:
+            recv_buf_lock.release()
+            time.sleep(0.01)
+            recv_buf_lock.acquire()
 
-    print("Received answer for request: ", reqID)  # den to vgazei apo to recv_buf gia na anagnwrizei ta diplotupa!!!!
-    print(BLUE, "And the reply is: ", recv_buf[reqID], ENDC)
-    (nofBytes, bytes_read, new_pos, new_size) = recv_buf[reqID]
-    recv_buf_lock.release()
+        print("Received answer for request: ", reqID)  # den to vgazei apo to recv_buf gia na anagnwrizei ta diplotupa!!!!
+        print(BLUE, "And the reply is: ", recv_buf[reqID], ENDC)
+        (nofBytes, bytes_read, new_pos, new_size) = recv_buf[reqID]
+        recv_buf_lock.release()
 
-    # tsekare edw ti exei epistrepsei o server
-    # an einai error code (FileNotFoundErrorCode) tote steile RPC open
-    # kai perimene gia apanthsh kai meta ksanadokimase me RPC read
+        # tsekare edw ti exei epistrepsei o server
+        # an einai error code (FileNotFoundErrorCode) tote steile RPC open
+        # kai perimene gia apanthsh kai meta ksanadokimase me RPC read
 
-    if nofBytes == FileNotFoundErrorCode:
-        del fid_local_dictionary[virtual_fid]
-        f = mynfs_open(fname, O_CREAT | O_RDWR) # call my_open
-        if f == FileExistsErrorCode:
-            print("File already exists...")
-            exit()
-        elif f == FileNotFoundErrorCode:
-            print("File does not exist...")
-            exit()
-        (nofBytes2ndTry, bytes_read2ndTry) = mynfs_read(f, original_nofBytes)
-        return (nofBytes2ndTry, bytes_read2ndTry.decode())
+        if nofBytes == FileNotFoundErrorCode:
+            del fid_local_dictionary[virtual_fid]
+            f = mynfs_open(fname, O_CREAT | O_RDWR) # call my_open
+            if f == FileExistsErrorCode:
+                print("File already exists...")
+                exit()
+            elif f == FileNotFoundErrorCode:
+                print("File does not exist...")
+                exit()
+            (nofBytes2ndTry, bytes_read2ndTry) = mynfs_read(f, original_nofBytes)
+            bytes_read = bytes_read2ndTry
+        # end of RPC read request
 
-    fid_local_dictionary[virtual_fid] = (fname, fid, new_pos, new_size)
-    return (nofBytes, bytes_read.decode())
+        # update cache
+        if cache_size + CACHE_BLOCK_SIZE > CACHE_TOTAL_SIZE:
+            print(RED, "Cache limits are reached.", ENDC)
+            for file in fid_local_dictionary:
+                (_, _, _, _, _, cache_to_delete_from) = fid_local_dictionary[file]
+                if cache_to_delete_from:
+                    print("Found a block to delete")
+                    del cache_to_delete_from[random.choice(list(cache_to_delete_from))]
+                    cache_size -= CACHE_BLOCK_SIZE
+                    break
+
+        cache[key] = (bytes_read.decode(), time.time())
+        cache_size += CACHE_BLOCK_SIZE
+
+    print(RED, "Going to return bytes from", pos % CACHE_BLOCK_SIZE, "till", pos % CACHE_BLOCK_SIZE + nofBytes)
+    bytes_to_return = cache[key][0][pos % CACHE_BLOCK_SIZE:pos % CACHE_BLOCK_SIZE + nofBytes]
+    print(bytes_to_return, ENDC)
+
+    fid_local_dictionary[virtual_fid] = (fname, flags, fid, pos + len(bytes_to_return), new_size, cache)
+    return (len(bytes_to_return), bytes_to_return)
 
 def mynfs_write(virtual_fid, buf):
     global fid_local_dictionary
     global reqID
+    global cache_size
 
     if virtual_fid not in fid_local_dictionary:
         return FileNotFoundErrorCode
-    (fname, fid, pos, _) = fid_local_dictionary[virtual_fid]
+    (fname, flags, fid, pos, _, cache) = fid_local_dictionary[virtual_fid]
 
     original_buf = buf
 
@@ -186,9 +232,19 @@ def mynfs_write(virtual_fid, buf):
             print("File does not exist...")
             exit()
         bytes_written2ndTry = mynfs_write(f, original_buf)
-        return bytes_written2ndTry
+        bytes_written = bytes_written2ndTry
 
-    fid_local_dictionary[virtual_fid] = (fname, fid, new_pos, new_size)
+    print(RED, int(pos / CACHE_BLOCK_SIZE), "->", int(new_pos / CACHE_BLOCK_SIZE), ENDC)
+    for key in range(int(pos / CACHE_BLOCK_SIZE), int(new_pos / CACHE_BLOCK_SIZE) + 1):
+        print("going to del", key, "block")
+        if key in cache:
+            cache_size -= CACHE_BLOCK_SIZE
+            del cache[key]
+        else:
+            print(key, "is not in cache!")
+
+
+    fid_local_dictionary[virtual_fid] = (fname, flags, fid, new_pos, new_size, cache)
     return bytes_written
 
 def mynfs_seek(virtual_fid, pos, whence):
@@ -196,7 +252,7 @@ def mynfs_seek(virtual_fid, pos, whence):
 
     if virtual_fid not in fid_local_dictionary:
         return FileNotFoundErrorCode
-    (fname, fid, old_pos, size) = fid_local_dictionary[virtual_fid]
+    (fname, flags, fid, old_pos, size, cache) = fid_local_dictionary[virtual_fid]
     # to set it to the position that the app sees (in case SEEK_CUR is set)
     if whence == SEEK_SET:
         start_pos = 0
@@ -207,16 +263,25 @@ def mynfs_seek(virtual_fid, pos, whence):
     else:
         return WrongWhenceCode
 
-    fid_local_dictionary[virtual_fid] = (fname, fid, start_pos + pos, size)
+    fid_local_dictionary[virtual_fid] = (fname, flags, fid, start_pos + pos, size, cache)
     return start_pos + pos
 
 def mynfs_close(virtual_fid):
+    global cache_size
     global fid_local_dictionary
+
     if virtual_fid not in fid_local_dictionary:
         return FileNotFoundErrorCode
-    (_, fid, _, _) = fid_local_dictionary[virtual_fid]
+    (_, _, _,  _, _,cache) = fid_local_dictionary[virtual_fid]
+    print(YELLOW, "Going to delete this cache blocks! Old size: ", cache_size, ENDC)
+    for key in cache:
+        cache_size -= CACHE_BLOCK_SIZE
+    print(YELLOW, "Going to delete this cache blocks! New size: ", cache_size, ENDC)
     del fid_local_dictionary[virtual_fid]
 
+def mynfs_set_cache(size, validity):
+    CACHE_TOTAL_SIZE = size
+    CACHE_BLOCK_FRESHNESS = validity
 ############################### END OF NFS STUFF ###############################
 class Sender(Thread):
     def run(self):
