@@ -111,14 +111,16 @@ def check_for_RET(args):
         return 0
 ############################ main ############################
 
-def parser():
-
-    f = open(sys.argv[1])
-    instr_list = f.readlines()
-    # edw to f mporei na kleisei, den to xreiazomaste allo
-    f.close()
-
-    print(instr_list)
+def parser(program_name):
+    try:
+        f = open(program_name)
+        instr_list = f.readlines()
+        # edw to f mporei na kleisei, den to xreiazomaste allo
+        f.close()
+    except FileNotFoundError:
+        print("No such file: ", program_name)
+        return (0,0,-1)
+    # print(instr_list)
 
     instr_dict = {}
     instcnt = 0
@@ -129,7 +131,7 @@ def parser():
         args = instr_dict[instcnt][1:]
         # print(args)
         if first_word[0] == '#':
-            print("label is: ", first_word)
+            # print("label is: ", first_word)
             # found a label
             label_dict[first_word] = instcnt
             # print("\nIN LABELS:", instr_dict[instcnt][0], "\n")
@@ -141,7 +143,7 @@ def parser():
 
     instcnt = 0
     for item in instr_list:
-        print("opcode is: ", instr_dict[instcnt][0])
+        # print("opcode is: ", instr_dict[instcnt][0])
         opcode = instr_dict[instcnt][0]
         args = instr_dict[instcnt][1:]
 
@@ -197,11 +199,12 @@ def parser():
     return (label_dict, instr_dict, SUCCESS)
 
 ##### main #####
-labels, instructions, error_code = parser()
-if (error_code == FAIL):
-    print("syntax error")
-    print(error_code)
-    exit()
-
-print(labels)
-print(instructions)
+# labels, instructions, error_code = parser(sys.argv[1])
+# if (error_code == FAIL):
+#     print("syntax error")
+#     print(error_code)
+#     exit()
+#
+# print(labels)
+# for instr_num, instr in instructions.items():
+#     print(instr_num, ": ", instr)
