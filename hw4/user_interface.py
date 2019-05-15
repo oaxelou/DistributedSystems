@@ -90,7 +90,7 @@ def user_interface():
                 print("(None)")
                 continue
             for program in program_dictionary:
-                print_message = "Thread " + str(program_dictionary[program][THREAD_FIELD]) + ", group " + str(program_dictionary[program][GROUP_FIELD]) + ": "
+                print_message = "Thread " + str(program_dictionary[program][THREAD_FIELD]) + ", group " + str(program_dictionary[program][GROUP_FIELD]) + ", executing " + str(program_dictionary[program][NAME_FIELD]) + ": "
                 if   program_dictionary[program][STATE_FIELD] == RUNNING:
                     print_message += "running."
                 elif program_dictionary[program][STATE_FIELD] == READY:
