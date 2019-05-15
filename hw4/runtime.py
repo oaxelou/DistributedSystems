@@ -51,13 +51,42 @@ def setSleep(key, interval):
     (name, args, group, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
     program_dictionary[key] = (name, args, group, BLOCKED, (SLEEPING, (time.time(), interval)), program_counter, instr_dict, labels_dict, var_dict)
 
+def setReceive(key, sender): # block because of waiting for a message
+    global program_dictionary
+    global program_dictionary_lock
+    print("Going to wait for a message from ", sender)
+    (name, args, group, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, group, BLOCKED, (RECEIVING, (sender, 0)), program_counter, instr_dict, labels_dict, var_dict)
+
+def setDeliver(key, receiver, message): # set message to blocked
+    global program_dictionary
+    global program_dictionary_lock
+    print("Going to deliver message to ", receiver)
+    if receiver not in program_dictionary:
+        print("There is no program with id: ", receiver)
+        exit() # not exit but for simplicity
+    (name, args, group, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[receiver]
+    if state != BLOCKED:
+        print("There is no blocked program with id: ", receiver)
+        exit() # not exit but for simplicity
+    (blockType, (sender, old_message)) = blockedInfo
+    if blockType != RECEIVING:
+        print("Not waiting for a message.")
+        exit()
+    if old_message != 0:
+        print("Already got the message!")
+        exit()
+    if sender != key:
+        print("The blocked thread is not waiting for a message from ", key)
+        exit() # not exit but for simplicity
+    program_dictionary[receiver] = (name, args, group, BLOCKED, (RECEIVING, (sender, message)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setState(key, newState):
     global program_dictionary
     global program_dictionary_lock
     print("Going to set ", key, " to ", newState)
-    (name, args, group, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, group, newState, 0, program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, group, _, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, group, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
 
 def dealWithReady(key):
     global program_dictionary
@@ -71,7 +100,7 @@ def dealWithReady(key):
         # setSleep(key, 5)
 
         if i == 2:
-            setSleep(key, 5)
+            setReceive(key, 1)
         if program_dictionary[key][STATE_FIELD] != RUNNING:
             print("Program blocked or ended")
             break
@@ -111,8 +140,8 @@ def dealWithBlocked(key):
             setState(key, READY)
     else:
         # print("Going to check if message is here")
-        if program_dictionary[key][BLOCKED_INFO_FIELD][1] != 0:
-            print("Message has been received: ", program_dictionary[key][BLOCKED_INFO_FIELD][1])
+        if program_dictionary[key][BLOCKED_INFO_FIELD][1][1] != 0:
+            print("Message has been received: ", program_dictionary[key][BLOCKED_INFO_FIELD][1][1])
             setState(key, READY)
         else:
             print("Message has not been received yet")
@@ -171,9 +200,10 @@ program_dictionary_lock.release()
 
 time.sleep(3)
 
-# program_dictionary_lock.acquire()
+program_dictionary_lock.acquire()
+setDeliver(1, 0, "hi")
 # program_dictionary[0] = (name, args, group, ENDED, 0, program_counter, instr_dict, labels_dict, var_dict)
-# program_dictionary_lock.release()
+program_dictionary_lock.release()
 
 
 
