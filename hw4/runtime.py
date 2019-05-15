@@ -2,7 +2,7 @@ import time
 import threading
 from threading import Thread
 from threading import Lock
-
+# from user_interface import user_interface
 
 program_dictionary = {}
 program_dictionary_lock = Lock()
@@ -20,7 +20,7 @@ READY = 1
 BLOCKED =  2
 ENDED = 3
 
-######## FIELD DEFINES #######
+#### BLOCKED FIELD DEFINES ###
 NOT_BLOCKED = 0
 SLEEPING = 1
 RECEIVING = 2
@@ -28,35 +28,33 @@ RECEIVING = 2
 ######## FIELD DEFINES #######
 NAME_FIELD = 0
 ARGS_FIELD = 1
-GROUP_FIELD = 2
-STATE_FIELD = 3
-BLOCKED_INFO_FIELD = 4
-PC_FIELD = 5
-INSTR_FIELD = 6
-LABEL_FIELD = 7
-VAR_FIELD = 8
+THREAD_FIELD = 2
+GROUP_FIELD = 3
+PROGRAM_FIELD = 4
+STATE_FIELD = 5
+BLOCKED_INFO_FIELD = 6
+PC_FIELD = 7
+INSTR_FIELD = 8
+LABEL_FIELD = 9
+VAR_FIELD = 10
 
 ######## FIELD DEFINES #######
 INSTR_TIME_ON_CPU = 5
 
 ################# CLASSES #################
-class UserCommunicationThread(Thread):
-    def run(self):
-        pass
-
 def setSleep(key, interval):
     global program_dictionary
     global program_dictionary_lock
     print("Going to sleep for ", interval, "secs")
-    (name, args, group, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, group, BLOCKED, (SLEEPING, (time.time(), interval)), program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, programID, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, programID, BLOCKED, (SLEEPING, (time.time(), interval)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setReceive(key, sender): # block because of waiting for a message
     global program_dictionary
     global program_dictionary_lock
     print("Going to wait for a message from ", sender)
-    (name, args, group, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, group, BLOCKED, (RECEIVING, (sender, 0)), program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, programID, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, 0)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setDeliver(key, receiver, message): # set message to blocked
     global program_dictionary
@@ -65,7 +63,7 @@ def setDeliver(key, receiver, message): # set message to blocked
     if receiver not in program_dictionary:
         print("There is no program with id: ", receiver)
         exit() # not exit but for simplicity
-    (name, args, group, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[receiver]
+    (name, args, threadID, groupID, programID, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[receiver]
     if state != BLOCKED:
         print("There is no blocked program with id: ", receiver)
         exit() # not exit but for simplicity
@@ -79,14 +77,21 @@ def setDeliver(key, receiver, message): # set message to blocked
     if sender != key:
         print("The blocked thread is not waiting for a message from ", key)
         exit() # not exit but for simplicity
-    program_dictionary[receiver] = (name, args, group, BLOCKED, (RECEIVING, (sender, message)), program_counter, instr_dict, labels_dict, var_dict)
+    program_dictionary[receiver] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, message)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setState(key, newState):
     global program_dictionary
     global program_dictionary_lock
     print("Going to set ", key, " to ", newState)
-    (name, args, group, _, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, group, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, programID, _, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, programID, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
+
+def increment_pc(key):
+    global program_dictionary
+    global program_dictionary_lock
+    print("going to increment pc")
+    (name, args, threadID, groupID, programID, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, programID, state, blockedInfo, program_counter+1, instr_dict, labels_dict, var_dict)
 
 def dealWithReady(key):
     global program_dictionary
@@ -95,12 +100,16 @@ def dealWithReady(key):
     setState(key, RUNNING)
     print(YELLOW, key, " is running", ENDC)
     for i in range(INSTR_TIME_ON_CPU):
+
         print(YELLOW, "running command", ENDC)
         # run command
-        # setSleep(key, 5)
+        # setSleep(key, 5)       # debugging stuff
+        if i == 2:               # debugging stuff
+            setReceive(key, 1)   # debugging stuff
 
-        if i == 2:
-            setReceive(key, 1)
+        # increment program counter
+        increment_pc(key)
+
         if program_dictionary[key][STATE_FIELD] != RUNNING:
             print("Program blocked or ended")
             break
@@ -126,7 +135,6 @@ class InterpreterThread(Thread):
             time.sleep(1.5)
 
 ###################################
-
 def dealWithBlocked(key):
     global program_dictionary
     global program_dictionary_lock
@@ -170,7 +178,8 @@ class BlockedManagerThread(Thread):
             program_dictionary_lock.release()
             time.sleep(1)
 ###########################################
-
+next_group_id  = 0
+next_thread_id = 0
 
 blockedManager = BlockedManagerThread()
 blockedManager.daemon = True
@@ -180,13 +189,14 @@ interpreter = InterpreterThread()
 interpreter.daemon = True
 interpreter.start()
 
-
 # Add a program in the program_dictionary
 program_dictionary_lock.acquire()
 name = "hello.c"
 argc, argv = 1, (name)
 args = (argc, argv)
-group = 0
+threadID = 0
+groupID = 0
+programID = 0
 state = READY
 blocked_info = 0 #(SLEEPING,(time.time(), 3)) # useful only when blocked
 program_counter = 0
@@ -194,7 +204,7 @@ instr_dict = {}
 labels_dict = {}
 var_dict = {}
 
-program_dictionary[0] = (name, args, group, state, blocked_info, program_counter, instr_dict, labels_dict, var_dict)
+program_dictionary[0] = (name, args, threadID, groupID, programID, state, blocked_info, program_counter, instr_dict, labels_dict, var_dict)
 program_dictionary_lock.release()
 
 
@@ -209,5 +219,5 @@ program_dictionary_lock.release()
 
 
 
-time.sleep(10)
-exit()
+# time.sleep(10)
+# exit()
