@@ -1,0 +1,9 @@
+SET $var2 "uo"
+SUB $res $ka 8
+#L BRA #part4
+BEQ $bg 4 #L
+SLP $7
+SND $msg 89 "str"
+#ll PRN "strio" $vv
+ADD $end 2 1
+RET 
