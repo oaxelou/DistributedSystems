@@ -4,6 +4,10 @@ from threading import Thread
 from threading import Lock
 # from user_interface import user_interface
 
+arithmetic = ["ADD", "SUB", "MUL", "DIV", "MOD"]
+branch = ["BGT", "BGE", "BLT", "BLE", "BEQ"]
+csp = ["SND", "RCV"]
+
 program_dictionary = {}
 program_dictionary_lock = Lock()
 
@@ -40,6 +44,11 @@ VAR_FIELD = 10
 
 ######## FIELD DEFINES #######
 INSTR_TIME_ON_CPU = 5
+
+### RUN_COMMAND RETURN VALUES ###
+NORMAL_PC_INCR = -1
+UNDEFINED_VAR = -2
+
 
 ################# CLASSES #################
 def setSleep(key, interval):
@@ -86,12 +95,149 @@ def setState(key, newState):
     (name, args, threadID, groupID, programID, _, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
     program_dictionary[key] = (name, args, threadID, groupID, programID, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
 
-def increment_pc(key):
+def increment_pc(key, new_pc):
     global program_dictionary
     global program_dictionary_lock
     print("going to increment pc")
     (name, args, threadID, groupID, programID, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, programID, state, blockedInfo, program_counter+1, instr_dict, labels_dict, var_dict)
+    program_dictionary[key] = (name, args, threadID, groupID, programID, state, blockedInfo, new_pc, instr_dict, labels_dict, var_dict)
+
+def check_varval_int(varval, key):
+    if varval[0] == '$':
+        if varval not in program_dictionary[key][VAR_FIELD]:
+            return -1
+        else:
+            print("VAR")
+            return 'var'
+    else:
+        return 'val'
+
+def run_command(key, command):
+    global program_dictionary
+    global program_dictionary_lock
+    # local_vars = program_dictionary[key][VAR_FIELD]
+
+    if command[0] == 'SET':
+        var = command[1]
+        varval = command[2]
+        # could be either string or variable or integer
+        if varval[0] == '\"':
+            print("varval is a string")
+            program_dictionary[key][VAR_FIELD][var] = varval
+
+        # else if varval is a variable
+        elif varval[0] == '$':
+            if varval not in program_dictionary[key][VAR_FIELD]:
+                print(varval, "not defined")
+            else:
+                program_dictionary[key][VAR_FIELD][var] = program_dictionary[key][VAR_FIELD][varval]
+        else:
+            print("varval is an int:", int(varval))
+            # mporei na ginei kai xwris to int
+            # kai na ginetai apo tis entoles pou kanoun praxeis
+            program_dictionary[key][VAR_FIELD][var] = int(varval)
+
+    elif command[0] in arithmetic:
+        var = command[1]
+        # varval1 = command[2]
+        # varval2 = command[3]
+
+        if check_varval_int(command[2], key) == 'var':
+            varval1 = program_dictionary[key][VAR_FIELD][command[2]]
+        elif check_varval_int(command[2], key) == 'val':
+            varval1 = int(command[2])
+        else:
+            print(command[2], "not defined")
+
+        if check_varval_int(command[3], key) == 'var':
+            varval2 = program_dictionary[key][VAR_FIELD][command[3]]
+        elif check_varval_int(command[3], key) == 'val':
+            varval2 = int(command[3])
+        else:
+            print(command[3], "not defined")
+
+
+        if command[0] == 'ADD':
+            program_dictionary[key][VAR_FIELD][var] = varval1 + varval2
+        elif command[0] == 'SUB':
+            program_dictionary[key][VAR_FIELD][var] = varval1 - varval2
+        elif command[0] == 'MUL':
+            program_dictionary[key][VAR_FIELD][var] = varval1 * varval2
+        elif command[0] == 'DIV':
+            program_dictionary[key][VAR_FIELD][var] = varval1 / varval2
+        elif command[0] == 'MOD':
+            program_dictionary[key][VAR_FIELD][var] = varval1 % varval2
+
+    elif command[0] in branch:
+        # varval1 = command[1]
+        # varval2 = command[2]
+        # label = command[3]
+
+        if check_varval_int(command[1], key) == 'var':
+            varval1 = program_dictionary[key][VAR_FIELD][command[1]]
+        elif check_varval_int(command[1], key) == 'val':
+            varval1 = int(command[1])
+        else:
+            print(command[1], "not defined")
+
+        if check_varval_int(command[2], key) == 'var':
+            varval2 = program_dictionary[key][VAR_FIELD][command[2]]
+        elif check_varval_int(command[2], key) == 'val':
+            varval2 = int(command[2])
+        else:
+            print(command[2], "not defined")
+
+        # at this point we know that the label we want to jump to exists
+        # find label in labels_dict and change program counter
+        # labels are in program_dictionary[key][LABEL_FIELD]
+
+        new_pc = program_dictionary[key][LABEL_FIELD][command[3]]
+
+        if command[0] == 'BEQ':
+            if varval1 == varval2:
+                return new_pc
+        elif command[0] == 'BGE':
+            if varval1 >= varval2:
+                return new_pc
+        elif command[0] == 'BGT':
+            if varval1 > varval2:
+                return new_pc
+        elif command[0] == 'BLE':
+            if varval1 <= varval2:
+                return new_pc
+        elif command[0] == 'BLT':
+            if varval1 < varval2:
+                return new_pc
+
+    elif command[0] == 'BRA':
+        new_pc = program_dictionary[key][LABEL_FIELD][command[1]]
+        return new_pc
+
+    elif command[0] == 'SLP':
+        # varval1 = command[1]
+
+        if check_varval_int(command[1], key) == 'var':
+            varval1 = program_dictionary[key][VAR_FIELD][command[1]]
+        elif check_varval_int(command[1], key) == 'val':
+            varval1 = int(command[1])
+        else:
+            print(command[1], "not defined")
+
+        setSleep(key, varval1)
+
+    elif command[0] == 'PRN':
+        for arg in command[1:]:
+            if arg[0] == '$' and arg not in program_dictionary[key][VAR_FIELD]:
+                print(arg, "not defined")
+            else:
+                print(RED, arg, ENDC)
+
+    elif command[0] == 'RET':
+        setState(key, ENDED)
+
+    # unless there is a jump, return -1 aka NORMAL_PC_INCR
+    return NORMAL_PC_INCR
+
 
 def dealWithReady(key):
     global program_dictionary
@@ -102,13 +248,28 @@ def dealWithReady(key):
     for i in range(INSTR_TIME_ON_CPU):
 
         print(YELLOW, "running command", ENDC)
+
+
+        pc = program_dictionary[key][PC_FIELD]
+        command = instr_dict[pc]
+
+        # returns -1 if there is no branch
+        new_pc = run_command(key, command)
+        print("after run command: command =", command[0], "new_pc == ", new_pc)
+        print(program_dictionary[key][VAR_FIELD])
         # run command
         # setSleep(key, 5)       # debugging stuff
         if i == 2:               # debugging stuff
             setReceive(key, 1)   # debugging stuff
 
         # increment program counter
-        increment_pc(key)
+        if new_pc == NORMAL_PC_INCR:
+            increment_pc(key, pc+1)
+        elif new_pc == UNDEFINED_VAR:
+            # kill program and its group
+            pass
+        else:
+            increment_pc(key, new_pc)
 
         if program_dictionary[key][STATE_FIELD] != RUNNING:
             print("Program blocked or ended")
@@ -200,8 +361,11 @@ programID = 0
 state = READY
 blocked_info = 0 #(SLEEPING,(time.time(), 3)) # useful only when blocked
 program_counter = 0
-instr_dict = {}
-labels_dict = {}
+instr_dict = {0: ['BRA', '#lm'], 1: ['ADD', '$rr', '4', '3'], 2: ['SLP', '10'], 3: ['SUB', '$rv', '10', '1'], \
+                4: ['ADD', '$rr', '4', '0'], 5: ['SUB', '$rv', '10', '0'], 6: ['ADD', '$rr', '0', '0'], 7: ['SUB', '$rv', '10', '5']}
+
+instr_dict = {0: ['PRN', '56', '"STRANG"'], 1: ['RET']}
+labels_dict = {'#lm': 2}
 var_dict = {}
 
 program_dictionary[0] = (name, args, threadID, groupID, programID, state, blocked_info, program_counter, instr_dict, labels_dict, var_dict)
