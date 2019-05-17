@@ -58,12 +58,12 @@ def setSleep(key, interval):
     (name, args, threadID, groupID, programID, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
     program_dictionary[key] = (name, args, threadID, groupID, programID, BLOCKED, (SLEEPING, (time.time(), interval)), program_counter, instr_dict, labels_dict, var_dict)
 
-def setReceive(key, sender): # block because of waiting for a message
+def setReceive(key, sender, varname): # block because of waiting for a message
     global program_dictionary
     global program_dictionary_lock
     print("Going to wait for a message from ", sender)
     (name, args, threadID, groupID, programID, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, 0)), program_counter, instr_dict, labels_dict, var_dict)
+    program_dictionary[key] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, varname, 0)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setDeliver(key, receiver, message): # set message to blocked
     global program_dictionary
@@ -71,22 +71,25 @@ def setDeliver(key, receiver, message): # set message to blocked
     print("Going to deliver message to ", receiver)
     if receiver not in program_dictionary:
         print("There is no program with id: ", receiver)
-        exit() # not exit but for simplicity
+        return
+        # exit() # not exit but for simplicity
     (name, args, threadID, groupID, programID, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[receiver]
     if state != BLOCKED:
         print("There is no blocked program with id: ", receiver)
-        exit() # not exit but for simplicity
-    (blockType, (sender, old_message)) = blockedInfo
-    if blockType != RECEIVING:
+        # exit() # not exit but for simplicity
+    (blockType, (sender, varname, old_message)) = blockedInfo
+    print(GREEN, "var name is ", varname, ENDC)
+    if blockType == SLEEPING:
         print("Not waiting for a message.")
-        exit()
+        return
     if old_message != 0:
         print("Already got the message!")
-        exit()
+        return
     if sender != key:
         print("The blocked thread is not waiting for a message from ", key)
-        exit() # not exit but for simplicity
-    program_dictionary[receiver] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, message)), program_counter, instr_dict, labels_dict, var_dict)
+        return # not exit but for simplicity
+    varname = blockedInfo[1][1]
+    program_dictionary[receiver] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, varname, message)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setState(key, newState):
     global program_dictionary
@@ -98,8 +101,8 @@ def setState(key, newState):
 def increment_pc(key, new_pc):
     global program_dictionary
     global program_dictionary_lock
-    print("going to increment pc")
     (name, args, threadID, groupID, programID, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    print("going to change pc from, ", program_counter, "to ", new_pc)
     program_dictionary[key] = (name, args, threadID, groupID, programID, state, blockedInfo, new_pc, instr_dict, labels_dict, var_dict)
 
 def check_varval_int(varval, key):
@@ -129,6 +132,8 @@ def run_command(key, command):
         elif varval[0] == '$':
             if varval not in program_dictionary[key][VAR_FIELD]:
                 print(varval, "not defined")
+                return UNDEFINED_VAR
+
             else:
                 program_dictionary[key][VAR_FIELD][var] = program_dictionary[key][VAR_FIELD][varval]
         else:
@@ -148,6 +153,7 @@ def run_command(key, command):
             varval1 = int(command[2])
         else:
             print(command[2], "not defined")
+            return UNDEFINED_VAR
 
         if check_varval_int(command[3], key) == 'var':
             varval2 = program_dictionary[key][VAR_FIELD][command[3]]
@@ -155,7 +161,7 @@ def run_command(key, command):
             varval2 = int(command[3])
         else:
             print(command[3], "not defined")
-
+            return UNDEFINED_VAR
 
         if command[0] == 'ADD':
             program_dictionary[key][VAR_FIELD][var] = varval1 + varval2
@@ -179,6 +185,7 @@ def run_command(key, command):
             varval1 = int(command[1])
         else:
             print(command[1], "not defined")
+            return UNDEFINED_VAR
 
         if check_varval_int(command[2], key) == 'var':
             varval2 = program_dictionary[key][VAR_FIELD][command[2]]
@@ -186,6 +193,8 @@ def run_command(key, command):
             varval2 = int(command[2])
         else:
             print(command[2], "not defined")
+            return UNDEFINED_VAR
+
 
         # at this point we know that the label we want to jump to exists
         # find label in labels_dict and change program counter
@@ -222,21 +231,60 @@ def run_command(key, command):
             varval1 = int(command[1])
         else:
             print(command[1], "not defined")
+            return UNDEFINED_VAR
 
         setSleep(key, varval1)
 
     elif command[0] == 'PRN':
+        string2print = ""
         for arg in command[1:]:
-            if arg[0] == '$' and arg not in program_dictionary[key][VAR_FIELD]:
-                print(arg, "not defined")
+            print(BLUE, arg, ENDC)
+            if arg[0] == '$':
+                if arg not in program_dictionary[key][VAR_FIELD]:
+                    print(arg, "not defined")
+                    return UNDEFINED_VAR
+                else:
+                    string2print += program_dictionary[key][VAR_FIELD][arg] + " "
             else:
-                print(RED, arg, ENDC)
+                string2print += arg[1:-1] + " "
+        print(RED, string2print, ENDC)
 
     elif command[0] == 'RET':
         setState(key, ENDED)
 
+    elif command[0] == 'SND':
+        if check_varval_int(command[1], key) == 'var':
+            thread2send2 = program_dictionary[key][VAR_FIELD][command[1]]
+        elif check_varval_int(command[1], key) == 'val':
+            thread2send2 = int(command[1])
+        else:
+            print(command[1], "not defined")
+            return UNDEFINED_VAR
+        setDeliver(key, thread2send2, command[2])
+
+    elif command[0] == 'RCV':
+        if check_varval_int(command[1], key) == 'var':
+            senderthread = program_dictionary[key][VAR_FIELD][command[1]]
+        elif check_varval_int(command[1], key) == 'val':
+            senderthread = int(command[1])
+        else:
+            print(command[1], "not defined")
+            return UNDEFINED_VAR
+        setReceive(key, senderthread, command[2])
     # unless there is a jump, return -1 aka NORMAL_PC_INCR
     return NORMAL_PC_INCR
+
+def kill_whole_group(key):
+    global program_dictionary
+    global program_dictionary_lock
+    print("Going to kill ", key, " and its group")
+    (_, _, _, my_groupID, _, _, _, _, _, _, _) = program_dictionary[key]
+    for program in program_dictionary:
+        (_, _, _, groupID, _, _, _, _, _, _, _) = program_dictionary[program]
+        if groupID == my_groupID:
+            print("Going to kill ", program)
+            setState(program, ENDED)
+    setState(key, ENDED)
 
 
 def dealWithReady(key):
@@ -251,23 +299,21 @@ def dealWithReady(key):
 
 
         pc = program_dictionary[key][PC_FIELD]
-        command = instr_dict[pc]
+        command = program_dictionary[key][INSTR_FIELD][pc]
 
-        # returns -1 if there is no branch
-        new_pc = run_command(key, command)
+        new_pc = run_command(key, command) # returns -1 if there is no branch
         print("after run command: command =", command[0], "new_pc == ", new_pc)
-        print(program_dictionary[key][VAR_FIELD])
-        # run command
+        print(GREEN, program_dictionary[key][VAR_FIELD], ENDC)
         # setSleep(key, 5)       # debugging stuff
-        if i == 2:               # debugging stuff
-            setReceive(key, 1)   # debugging stuff
+        # if i == 2:               # debugging stuff
+        #     setReceive(key, 1)   # debugging stuff
 
         # increment program counter
         if new_pc == NORMAL_PC_INCR:
             increment_pc(key, pc+1)
         elif new_pc == UNDEFINED_VAR:
             # kill program and its group
-            pass
+            kill_whole_group(key)
         else:
             increment_pc(key, new_pc)
 
@@ -309,8 +355,10 @@ def dealWithBlocked(key):
             setState(key, READY)
     else:
         # print("Going to check if message is here")
-        if program_dictionary[key][BLOCKED_INFO_FIELD][1][1] != 0:
-            print("Message has been received: ", program_dictionary[key][BLOCKED_INFO_FIELD][1][1])
+        if program_dictionary[key][BLOCKED_INFO_FIELD][1][2] != 0:
+            print("Message has been received: ", program_dictionary[key][BLOCKED_INFO_FIELD][1][2])
+            print("Going to store the message to ", program_dictionary[key][BLOCKED_INFO_FIELD][1][1])
+            program_dictionary[key][VAR_FIELD][program_dictionary[key][BLOCKED_INFO_FIELD][1][1]] = program_dictionary[key][BLOCKED_INFO_FIELD][1][2]
             setState(key, READY)
         else:
             print("Message has not been received yet")
@@ -327,14 +375,14 @@ class BlockedManagerThread(Thread):
                 if program_dictionary[key][STATE_FIELD] == BLOCKED:
                     dealWithBlocked(key)
                 elif program_dictionary[key][STATE_FIELD] == ENDED:
-                    print(RED, "Going to delete ", key, ENDC)
+                    print(YELLOW, "Going to delete ", key, ENDC)
                     key2del = key
                     break
 
             if key2del >= 0:
                 del program_dictionary[key2del]
-                # else:
-                #     print("Program ", key, " is not blocked. Going to try for another one")
+            # else:
+            #     print("Program ", key2del, " is not blocked. Going to try for another one")
             print(BLUE, program_dictionary, ENDC)
             program_dictionary_lock.release()
             time.sleep(1)
@@ -351,37 +399,37 @@ interpreter.daemon = True
 interpreter.start()
 
 # Add a program in the program_dictionary
-program_dictionary_lock.acquire()
-name = "hello.c"
-argc, argv = 1, (name)
-args = (argc, argv)
-threadID = 0
-groupID = 0
-programID = 0
-state = READY
-blocked_info = 0 #(SLEEPING,(time.time(), 3)) # useful only when blocked
-program_counter = 0
-instr_dict = {0: ['BRA', '#lm'], 1: ['ADD', '$rr', '4', '3'], 2: ['SLP', '10'], 3: ['SUB', '$rv', '10', '1'], \
-                4: ['ADD', '$rr', '4', '0'], 5: ['SUB', '$rv', '10', '0'], 6: ['ADD', '$rr', '0', '0'], 7: ['SUB', '$rv', '10', '5']}
+# program_dictionary_lock.acquire()
+# name = "hello.c"
+# argc, argv = 1, (name)
+# args = (argc, argv)
+# threadID = 0
+# groupID = 0
+# programID = 0
+# state = READY
+# blocked_info = 0 #(SLEEPING,(time.time(), 3)) # useful only when blocked
+# program_counter = 0
+# instr_dict = {0: ['BRA', '#lm'], 1: ['ADD', '$rr', '4', '3'], 2: ['SLP', '2'], 3: ['SUB', '$rv', '10', '1'], \
+#                 4: ['ADD', '$rr', '4', '0'], 5: ['SUB', '$rv', '10', '0'], 6: ['ADD', '$rr', '0', '0'], 7: ['SUB', '$rv', '10', '5'], 8: ['RET']}
+#
+# # instr_dict = {0: ['PRN', '56', '"STRANG"'], 1: ['RET']}
+# labels_dict = {'#lm': 2}
+# var_dict = {}
+#
+# program_dictionary[0] = (name, args, threadID, groupID, programID, state, blocked_info, program_counter, instr_dict, labels_dict, var_dict)
+# program_dictionary_lock.release()
 
-instr_dict = {0: ['PRN', '56', '"STRANG"'], 1: ['RET']}
-labels_dict = {'#lm': 2}
-var_dict = {}
 
-program_dictionary[0] = (name, args, threadID, groupID, programID, state, blocked_info, program_counter, instr_dict, labels_dict, var_dict)
-program_dictionary_lock.release()
+# time.sleep(3)
 
-
-time.sleep(3)
-
-program_dictionary_lock.acquire()
-setDeliver(1, 0, "hi")
+# program_dictionary_lock.acquire()
+# setDeliver(1, 0, "hi")
 # program_dictionary[0] = (name, args, group, ENDED, 0, program_counter, instr_dict, labels_dict, var_dict)
-program_dictionary_lock.release()
+# program_dictionary_lock.release()
 
 
 
 
 
-# time.sleep(10)
+# time.sleep(20)
 # exit()
