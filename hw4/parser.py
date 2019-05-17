@@ -98,11 +98,54 @@ def check_for_SLP(args):
 def check_for_PRN(args):
     # should have at least one argument
     if len(args) < 1:
-        return -1
-    for i in range(len(args)):
-        if args[i][0] != '$' and args[i].isdigit()==False and (args[i][0] != '\"' or args[i][len(args[i])-1] != '\"'):
+        return (-1,0)
+
+    print("OLD ARGS: ")
+    print(args)
+    new_args = []
+    arg_iter = 0
+    while arg_iter < len(args):
+        if args[arg_iter][0] == '\"':
+            if args[arg_iter][len(args[arg_iter])-1] == '\"':
+                new_args.append(args[arg_iter])
+                arg_iter += 1
+                continue
+            if arg_iter == len(args)-1:
+                print("Syntax Error. The string should ed somewhere")
+            for remaining in range(arg_iter+1, len(args)):
+                if remaining == len(args) - 1 and args[remaining][len(args[remaining])-1] != '\"':
+                    print("Syntax error. string is not ending somewhere")
+                    return -1
+                args[arg_iter] += " "
+                args[arg_iter] += args[remaining]
+                if args[remaining][len(args[remaining])-1] == '\"':
+                    break
+            new_args.append(args[arg_iter])
+            arg_iter = remaining + 1
+        elif args[arg_iter][0] == '$':
+            new_args.append(args[arg_iter])
+            arg_iter += 1
+        elif args[arg_iter].isdigit():
+            new_args.append(args[arg_iter])
+            arg_iter += 1
+        else:
+            print("Syntax Error")
             return -1
-    return 0
+
+    args = new_args
+    print("new:", args)
+    for iter in range(len(new_args)):
+        print(args[iter])
+        args[iter] = new_args[iter]
+    # for rest in range(iter, len(args)-1):
+        # del args[rest]
+    print("NEW ARGS: ")
+    print(args)
+    # concatenation of strings
+    # for i in range(len(args)):
+    #     if args[i][0] != '$' and args[i].isdigit()==False and (args[i][0] != '\"' or args[i][len(args[i])-1] != '\"'):
+    #         return -1
+    return (0,args)
 
 def check_for_RET(args):
     if len(args) != 0:
@@ -174,9 +217,12 @@ def parser(program_name):
                 print("SLP expects: VarVal")
                 return(0,0,FAIL)
         elif op_group(opcode) == 5:
-            if check_for_PRN(args) == -1:
+            returnvalue, new_args = check_for_PRN(args)
+            if returnvalue == -1:
                 print("PRN expects: {VarVal}")
                 return(0,0,FAIL)
+            instr_dict[instcnt][1:] = new_args
+
         elif op_group(opcode) == 6:
             if check_for_RET(args) == -1:
                 print("RET expects no args")
