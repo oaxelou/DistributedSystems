@@ -34,7 +34,7 @@ NAME_FIELD = 0
 ARGS_FIELD = 1
 THREAD_FIELD = 2
 GROUP_FIELD = 3
-PROGRAM_FIELD = 4
+IP_FIELD = 4
 STATE_FIELD = 5
 BLOCKED_INFO_FIELD = 6
 PC_FIELD = 7
@@ -55,15 +55,15 @@ def setSleep(key, interval):
     global program_dictionary
     global program_dictionary_lock
     print("Going to sleep for ", interval, "secs")
-    (name, args, threadID, groupID, programID, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, programID, BLOCKED, (SLEEPING, (time.time(), interval)), program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, IP, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, IP, BLOCKED, (SLEEPING, (time.time(), interval)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setReceive(key, sender, varname): # block because of waiting for a message
     global program_dictionary
     global program_dictionary_lock
     print("Going to wait for a message from ", sender)
-    (name, args, threadID, groupID, programID, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, varname, 0)), program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, IP, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, IP, BLOCKED, (RECEIVING, (sender, varname, 0)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setDeliver(key, receiver, message): # set message to blocked
     global program_dictionary
@@ -73,7 +73,7 @@ def setDeliver(key, receiver, message): # set message to blocked
         print("There is no program with id: ", receiver)
         return
         # exit() # not exit but for simplicity
-    (name, args, threadID, groupID, programID, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[receiver]
+    (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[receiver]
     if state != BLOCKED:
         print("There is no blocked program with id: ", receiver)
         # exit() # not exit but for simplicity
@@ -89,21 +89,21 @@ def setDeliver(key, receiver, message): # set message to blocked
         print("The blocked thread is not waiting for a message from ", key)
         return # not exit but for simplicity
     varname = blockedInfo[1][1]
-    program_dictionary[receiver] = (name, args, threadID, groupID, programID, BLOCKED, (RECEIVING, (sender, varname, message)), program_counter, instr_dict, labels_dict, var_dict)
+    program_dictionary[receiver] = (name, args, threadID, groupID, IP, BLOCKED, (RECEIVING, (sender, varname, message)), program_counter, instr_dict, labels_dict, var_dict)
 
 def setState(key, newState):
     global program_dictionary
     global program_dictionary_lock
     print("Going to set ", key, " to ", newState)
-    (name, args, threadID, groupID, programID, _, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, programID, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, IP, _, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, IP, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
 
 def increment_pc(key, new_pc):
     global program_dictionary
     global program_dictionary_lock
-    (name, args, threadID, groupID, programID, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
     print("going to change pc from, ", program_counter, "to ", new_pc)
-    program_dictionary[key] = (name, args, threadID, groupID, programID, state, blockedInfo, new_pc, instr_dict, labels_dict, var_dict)
+    program_dictionary[key] = (name, args, threadID, groupID, IP, state, blockedInfo, new_pc, instr_dict, labels_dict, var_dict)
 
 def check_varval_int(varval, key):
     if varval[0] == '$':
@@ -118,7 +118,6 @@ def check_varval_int(varval, key):
 def run_command(key, command):
     global program_dictionary
     global program_dictionary_lock
-    # local_vars = program_dictionary[key][VAR_FIELD]
 
     if command[0] == 'SET':
         var = command[1]
@@ -200,8 +199,11 @@ def run_command(key, command):
         # find label in labels_dict and change program counter
         # labels are in program_dictionary[key][LABEL_FIELD]
 
-        new_pc = program_dictionary[key][LABEL_FIELD][command[3]]
-
+        try:
+            new_pc = program_dictionary[key][LABEL_FIELD][command[3]]
+        except KeyError:
+            print("No such label")
+            return UNDEFINED_VAR
         if command[0] == 'BEQ':
             if varval1 == varval2:
                 return new_pc
@@ -219,7 +221,11 @@ def run_command(key, command):
                 return new_pc
 
     elif command[0] == 'BRA':
-        new_pc = program_dictionary[key][LABEL_FIELD][command[1]]
+        try:
+            new_pc = program_dictionary[key][LABEL_FIELD][command[1]]
+        except KeyError:
+            print("No such label")
+            return UNDEFINED_VAR
         return new_pc
 
     elif command[0] == 'SLP':
@@ -238,16 +244,19 @@ def run_command(key, command):
     elif command[0] == 'PRN':
         string2print = ""
         for arg in command[1:]:
-            print(BLUE, arg, ENDC)
+            # print(BLUE, arg, ENDC)
             if arg[0] == '$':
                 if arg not in program_dictionary[key][VAR_FIELD]:
                     print(arg, "not defined")
                     return UNDEFINED_VAR
                 else:
-                    string2print += program_dictionary[key][VAR_FIELD][arg] + " "
+                    string2print += str(program_dictionary[key][VAR_FIELD][arg]) + " "
             else:
-                string2print += arg[1:-1] + " "
-        print(RED, string2print, ENDC)
+                if arg[0] == '\"':
+                    string2print += arg[1:-1] + " "
+                else:
+                    string2print += str(arg) + " "
+        print(RED, "Group ", program_dictionary[key][GROUP_FIELD], ", Thread ", program_dictionary[key][THREAD_FIELD], ":", string2print, ENDC)
 
     elif command[0] == 'RET':
         setState(key, ENDED)
@@ -274,18 +283,25 @@ def run_command(key, command):
     # unless there is a jump, return -1 aka NORMAL_PC_INCR
     return NORMAL_PC_INCR
 
+def kill(groupID):
+    global program_dictionary
+    global program_dictionary_lock
+    programs_killed = 0
+    for program in program_dictionary:
+        program_groupID = program_dictionary[program][GROUP_FIELD]
+        print(GREEN, "Going to check if ", program_groupID, "==", groupID, ENDC)
+        if str(program_groupID) == groupID:
+            print(GREEN, "Going to kill ", program, ENDC)
+            setState(program, ENDED)
+            programs_killed += 1
+    print("Programs Killed: ", programs_killed)
 def kill_whole_group(key):
     global program_dictionary
     global program_dictionary_lock
     print("Going to kill ", key, " and its group")
     (_, _, _, my_groupID, _, _, _, _, _, _, _) = program_dictionary[key]
-    for program in program_dictionary:
-        (_, _, _, groupID, _, _, _, _, _, _, _) = program_dictionary[program]
-        if groupID == my_groupID:
-            print("Going to kill ", program)
-            setState(program, ENDED)
+    kill(my_groupID)
     setState(key, ENDED)
-
 
 def dealWithReady(key):
     global program_dictionary
@@ -294,10 +310,7 @@ def dealWithReady(key):
     setState(key, RUNNING)
     print(YELLOW, key, " is running", ENDC)
     for i in range(INSTR_TIME_ON_CPU):
-
         print(YELLOW, "running command", ENDC)
-
-
         pc = program_dictionary[key][PC_FIELD]
         command = program_dictionary[key][INSTR_FIELD][pc]
 
@@ -383,7 +396,7 @@ class BlockedManagerThread(Thread):
                 del program_dictionary[key2del]
             # else:
             #     print("Program ", key2del, " is not blocked. Going to try for another one")
-            print(BLUE, program_dictionary, ENDC)
+            # print(BLUE, program_dictionary, ENDC)
             program_dictionary_lock.release()
             time.sleep(1)
 ###########################################

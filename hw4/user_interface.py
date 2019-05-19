@@ -9,18 +9,6 @@
 # instr_dict[0] = ["ADD", "$res", "$var1", "$var2"]
 # print(my_dict)
 
-NAME_FIELD = 0
-ARGS_FIELD = 1
-THREAD_FIELD = 2
-GROUP_FIELD = 3
-PROGRAM_FIELD = 4
-STATE_FIELD = 5
-BLOCKED_INFO_FIELD = 6
-
-RUNNING = 0
-READY = 1
-BLOCKED =  2
-ENDED = 3
 ################################################################################
 # User Intrface
 from runtime import *
@@ -109,10 +97,18 @@ def user_interface():
                     print_message += "???"
                 print(print_message)
         elif command_list[0] == 'kill':  # done
-            for program2kill in command_list[1:]:
-                print(RED, "Going to kill ", int(program2kill),ENDC)
-                if int(program2kill) in program_dictionary:
-                    setState(int(program2kill), ENDED)
+            program_dictionary_lock.acquire()
+            kill(command_list[1])
+            # for group2kill in command_list[1:]:
+            #     print(RED, "Going to kill group ", int(group2kill),ENDC)
+            #     # if int(group2kill) in program_dictionary:
+            #     #     setState(int(group2kill), ENDED)
+            #     for program in program_dictionary:
+            #         groupID = program_dictionary[program][GROUP_FIELD]
+            #         if groupID == group2kill:
+            #             print("Going to kill ", program)
+            #             setState(program, ENDED)
+            program_dictionary_lock.release()
         elif command_list[0] == 'menu':  # done
             print_menu()
         elif command_list[0] == 'exit':  # done
