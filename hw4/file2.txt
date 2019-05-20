@@ -1,0 +1,9 @@
+BRA #lm
+ADD $rr 4 3
+SLP 10
+#lm SUB $rv 10 1
+ADD $rr 4 0
+SUB $rv 10 0
+ADD $rr 0 0
+SUB $rv 10 5
+RET

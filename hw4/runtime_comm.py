@@ -54,7 +54,7 @@ def fragNsend(sock, prog_dict_entry, address):
     program_dictionary_serialized = program_dictionary_string.encode()
     # print(program_dictionary_serialized)
 
-    sock.sendto("migrate".encode(), address)
+    sock.sendto(str(("migrate", 0)).encode(), address)
 
     iter = 0
     while True:
@@ -72,29 +72,54 @@ def fragNsend(sock, prog_dict_entry, address):
     message = "EndOfTransmission"
     sock.sendto(str(message).encode(), address)
 
-def global_ids_update(sock, next_group_id, next_thread_id, my_load, address):
-    sock.sendto("inform".encode(), address)
-    sock.sendto(str((next_group_id, next_thread_id, my_load)).encode(), address)
+def global_ids_update(sock, next_group_id, next_thread_id, my_load):
+    message = ("inform", (next_group_id, next_thread_id, my_load))
+    sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
 
 class MulticastListener(Thread):
     def run(self):
         while True:
+            global next_group_id
+            global next_thread_id
             # init - receive IP from the other runtime
             d = mult_sock.recvfrom(UDP_SIZE)
-            print("New runtime @ ", d[1])
-            ids_lock.acquire()
-            other_runtimes_dict[d[1]] = 0
-            global_ids_update(sock, next_group_id, next_thread_id, my_load, d[1])
-            ids_lock.release()
+            print(MY_IP, MY_PORT)
+            print(d[1])
+            if d[1] == (MY_IP, MY_PORT):
+                continue
+            data = make_tuple(d[0].decode())
+            if data[0] == "hello":
+                print("New runtime @ ", d[1])
+                ids_lock.acquire()
+                other_runtimes_dict[d[1]] = 0
+                # global_ids_update(sock, next_group_id, next_thread_id, my_load, d[1])
+                message = ("inform", (next_group_id, next_thread_id, my_load))
+                sock.sendto(str(message).encode(), d[1])
+                print(other_runtimes_dict)
+                ids_lock.release()
+            elif data[0] == "exit":
+                ids_lock.acquire()
+                if d[1] in other_runtimes_dict:
+                    del other_runtimes_dict[d[1]]
+                    print(other_runtimes_dict)
+                ids_lock.release()
+            elif data[0] == "inform":
+                ids_lock.acquire()
+                next_group_id, next_thread_id, load = data[1]
+                if d[1] not in other_runtimes_dict:
+                    other_runtimes_dict[d[1]] = load
+                    print(other_runtimes_dict)
+                ids_lock.release()
+
 
 class ReceiverThread(Thread):
     def run(self):
         while True:
             # init - receive IP from the other runtime
             d = sock.recvfrom(UDP_SIZE)
-            data = d[0].decode()
+            data = make_tuple(d[0].decode())
             print("I got: ", data)
-            if data == "migrate":
+            if data[0] == "migrate":
                 program_dictionary_serialized = ""
                 while True:
                     d = sock.recvfrom(UDP_SIZE)
@@ -113,15 +138,12 @@ class ReceiverThread(Thread):
                 # 1) na pairnei to pedio tou threadID kai na to xrhsimopoiei ws key
                 # 2) an uparxei sleep na prosarmozei ton xrono (h mhpws to runtime pou to stelnei?)
                 # 3) na allaksoume tin IP (h mhpws to runtime pou to stelnei?)
-            elif data == "inform":
-                global next_group_id
-                global next_thread_id
-                d = sock.recvfrom(UDP_SIZE)
-                print("I got ", d[0].decode())
+            elif data[0] == "inform":
                 ids_lock.acquire()
-                next_group_id, next_thread_id, load = make_tuple(d[0].decode())
+                next_group_id, next_thread_id, load = data[1]
                 if d[1] not in other_runtimes_dict:
                     other_runtimes_dict[d[1]] = load
+                    print(other_runtimes_dict)
                 ids_lock.release()
 ################################################################################
 
@@ -140,7 +162,7 @@ next_group_id = 0
 next_thread_id = 0
 my_load = 0
 
-message = "This is my IP"
+message = ("hello", 0)
 sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
 
 # Multicast Socket creation
@@ -183,9 +205,7 @@ def main():
     next_group_id += 1
     next_thread_id += 1
     # inform for next_group_id & next_thread_id
-    for runtime in other_runtimes_dict:
-        print("Going to inform ", runtime)
-        global_ids_update(sock, next_group_id, next_thread_id, my_load, runtime)
+    global_ids_update(sock, next_group_id, next_thread_id, my_load)
     ids_lock.release()
 
     ############################################
@@ -200,3 +220,6 @@ def main():
 
 main()
 time.sleep(5)
+
+message = ("exit", 0)
+sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
