@@ -2,6 +2,11 @@ import time
 import threading
 from threading import Thread
 from threading import Lock
+import socket
+import sys
+import struct
+from ast import literal_eval as make_tuple
+import struct
 # from user_interface import user_interface
 
 arithmetic = ["ADD", "SUB", "MUL", "DIV", "MOD"]
@@ -28,6 +33,12 @@ ENDED = 3
 NOT_BLOCKED = 0
 SLEEPING = 1
 RECEIVING = 2
+SENDING = 3
+DELIVERING = 4
+
+BLOCKED_TYPE = 0
+SLEEPING_TIME_EXPECTED_MES = 1
+RCV_BUFFER = 2
 
 ######## FIELD DEFINES #######
 NAME_FIELD = 0
@@ -55,54 +66,50 @@ def setSleep(key, interval):
     global program_dictionary
     global program_dictionary_lock
     print("Going to sleep for ", interval, "secs")
-    (name, args, threadID, groupID, IP, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, IP, BLOCKED, (SLEEPING, (time.time(), interval)), program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, IP, _, blocked_info, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, IP, BLOCKED, (SLEEPING, (time.time(), interval), blocked_info[RCV_BUFFER]), program_counter, instr_dict, labels_dict, var_dict)
+
+def setState(key, newState):
+    global program_dictionary
+    global program_dictionary_lock
+    (name, args, threadID, groupID, IP, oldState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    print("Going to set ", key, " from ", oldState, " to ", newState)
+    program_dictionary[key] = (name, args, threadID, groupID, IP, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
+
+def setBlockedState(key, newState):
+    global program_dictionary
+    global program_dictionary_lock
+    (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    (blocked_State, expected_message, rcv_buffer) = blockedInfo
+    blockedInfo = (newState, expected_message, rcv_buffer)
+    print("Going to set ", key, " from ", blocked_State, " to ", newState)
+    if state != BLOCKED:
+        print("Something went terribly wrong with setting blocked state")
+        exit(1)
+    program_dictionary[key] = (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
 
 def setReceive(key, sender, varname): # block because of waiting for a message
     global program_dictionary
     global program_dictionary_lock
     print("Going to wait for a message from ", sender)
-    (name, args, threadID, groupID, IP, _, _, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, IP, BLOCKED, (RECEIVING, (sender, varname, 0)), program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, IP, _, blocked_info, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    program_dictionary[key] = (name, args, threadID, groupID, IP, BLOCKED, (RECEIVING, (sender, varname), blocked_info[RCV_BUFFER]), program_counter, instr_dict, labels_dict, var_dict)
 
+# done
 def setDeliver(key, receiver, message): # set message to blocked
     global program_dictionary
     global program_dictionary_lock
     print("Going to deliver message to ", receiver)
-    if receiver not in program_dictionary:
-        print("There is no program with id: ", receiver)
-        return
-        # exit() # not exit but for simplicity
-    (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[receiver]
-    if state != BLOCKED:
-        print("There is no blocked program with id: ", receiver)
-        # exit() # not exit but for simplicity
-    (blockType, (sender, varname, old_message)) = blockedInfo
-    print(GREEN, "var name is ", varname, ENDC)
-    if blockType == SLEEPING:
-        print("Not waiting for a message.")
-        return
-    if old_message != 0:
-        print("Already got the message!")
-        return
-    if sender != key:
-        print("The blocked thread is not waiting for a message from ", key)
-        return # not exit but for simplicity
-    varname = blockedInfo[1][1]
-    program_dictionary[receiver] = (name, args, threadID, groupID, IP, BLOCKED, (RECEIVING, (sender, varname, message)), program_counter, instr_dict, labels_dict, var_dict)
-
-def setState(key, newState):
-    global program_dictionary
-    global program_dictionary_lock
-    print("Going to set ", key, " to ", newState)
-    (name, args, threadID, groupID, IP, _, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    program_dictionary[key] = (name, args, threadID, groupID, IP, newState, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
+    (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+    (blockType, _, msg_buffer) = blockedInfo
+    blockedInfo = (SENDING, (receiver, message), msg_buffer)
+    program_dictionary[key] = (name, args, threadID, groupID, IP, BLOCKED, blockedInfo, program_counter, instr_dict, labels_dict, var_dict)
 
 def increment_pc(key, new_pc):
     global program_dictionary
     global program_dictionary_lock
     (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
-    print("going to change pc from, ", program_counter, "to ", new_pc)
+    # print("going to change pc from, ", program_counter, "to ", new_pc)
     program_dictionary[key] = (name, args, threadID, groupID, IP, state, blockedInfo, new_pc, instr_dict, labels_dict, var_dict)
 
 def check_varval_int(varval, key):
@@ -256,7 +263,7 @@ def run_command(key, command):
                     string2print += arg[1:-1] + " "
                 else:
                     string2print += str(arg) + " "
-        print(RED, "Group ", program_dictionary[key][GROUP_FIELD], ", Thread ", program_dictionary[key][THREAD_FIELD], ":", string2print, ENDC)
+        print(RED, "Group ", program_dictionary[key][GROUP_FIELD], ", Thread ", program_dictionary[key][THREAD_FIELD][1], ":", string2print, ENDC)
 
     elif command[0] == 'RET':
         setState(key, ENDED)
@@ -269,7 +276,7 @@ def run_command(key, command):
         else:
             print(command[1], "not defined")
             return UNDEFINED_VAR
-        setDeliver(key, thread2send2, command[2])
+        setDeliver(key, thread2send2, command[2])  # mesa sthn setDeliver allazei to state se BLOCKED
 
     elif command[0] == 'RCV':
         if check_varval_int(command[1], key) == 'var':
@@ -279,7 +286,7 @@ def run_command(key, command):
         else:
             print(command[1], "not defined")
             return UNDEFINED_VAR
-        setReceive(key, senderthread, command[2])
+        setReceive(key, senderthread, command[2])  # mesa sthn setReceive allazei to state se BLOCKED
     # unless there is a jump, return -1 aka NORMAL_PC_INCR
     return NORMAL_PC_INCR
 
@@ -368,14 +375,85 @@ def dealWithBlocked(key):
             setState(key, READY)
     else:
         # print("Going to check if message is here")
-        if program_dictionary[key][BLOCKED_INFO_FIELD][1][2] != 0:
-            print("Message has been received: ", program_dictionary[key][BLOCKED_INFO_FIELD][1][2])
-            print("Going to store the message to ", program_dictionary[key][BLOCKED_INFO_FIELD][1][1])
-            program_dictionary[key][VAR_FIELD][program_dictionary[key][BLOCKED_INFO_FIELD][1][1]] = program_dictionary[key][BLOCKED_INFO_FIELD][1][2]
-            setState(key, READY)
-        else:
-            print("Message has not been received yet")
-
+        (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+        if program_dictionary[key][BLOCKED_INFO_FIELD][BLOCKED_TYPE] == SENDING:
+            (receiver, message) = program_dictionary[key][BLOCKED_INFO_FIELD][SLEEPING_TIME_EXPECTED_MES]
+            foundReceiver = False
+            for program in program_dictionary:
+                print(YELLOW, receiver, "Checking to send to ",program_dictionary[program][THREAD_FIELD], ENDC)
+                if program_dictionary[program][THREAD_FIELD][1] == receiver:
+                    print("Found the receiver")
+                    foundReceiver = True
+                    break
+            if foundReceiver == False:
+                print("In this runtime the receiver thread ", receiver, "does not exist")
+                return
+            program_dictionary[program][BLOCKED_INFO_FIELD][RCV_BUFFER].append((program_dictionary[key][THREAD_FIELD][1], message))
+            setBlockedState(key, DELIVERING)
+        elif program_dictionary[key][BLOCKED_INFO_FIELD][BLOCKED_TYPE] == DELIVERING:
+            (receiver, message) = program_dictionary[key][BLOCKED_INFO_FIELD][SLEEPING_TIME_EXPECTED_MES]
+            foundReceiver = False
+            for program in program_dictionary:
+                print(YELLOW, receiver, "Checking to send to ",program_dictionary[program][THREAD_FIELD], ENDC)
+                if program_dictionary[program][THREAD_FIELD][1] == receiver:
+                    print("Found the receiver")
+                    foundReceiver = True
+                    break
+            if foundReceiver == False:
+                print("In this runtime the receiver thread ", receiver, "does not exist")
+                return
+            if (key, message) not in program_dictionary[program][BLOCKED_INFO_FIELD][RCV_BUFFER]:
+                print("Message received.")
+                setState(key, READY)
+        elif program_dictionary[key][BLOCKED_INFO_FIELD][BLOCKED_TYPE] == RECEIVING:
+            # set program_dictionary here
+            message2receive = program_dictionary[key][BLOCKED_INFO_FIELD][SLEEPING_TIME_EXPECTED_MES]
+            print("Searching for ", message2receive)
+            buffer = program_dictionary[key][BLOCKED_INFO_FIELD][RCV_BUFFER]
+            try:
+                print(message2receive[1])
+                print("ok")
+                print(message2receive[1][0])
+                print("ok1")
+                if message2receive[1][0] == '$':
+                # if message2receive[1][0] == '$':
+                    foundIt = False
+                    for message in buffer:
+                        print("ok2")
+                        print(message)
+                        if message2receive[0] == message[0]: # dhladh o sender na einai idios
+                            print("ok3")
+                            foundIt = True
+                            break
+                    if foundIt:
+                        # store the value in message2receive[1] var
+                        program_dictionary[key][VAR_FIELD][message2receive[1]] = message[1]
+                        print("found it: Got the message I wanted: ", message2receive)
+                        # print(RED, "will del buffer[message] =", buffer[message], ENDC)
+                        # del buffer[message]
+                        buffer.remove(message)
+                        # set program_dictionary here
+                        (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+                        program_dictionary[key] = (name, args, threadID, groupID, IP, READY, (0, 0, buffer), program_counter, instr_dict, labels_dict, var_dict)
+                else:
+                    if message2receive in buffer:
+                        print("Got the message I wanted: ", message2receive)
+                        # print(RED, "will del buffer[message] =", buffer[message2receive], ENDC)
+                        # del buffer[message2receive]
+                        buffer.remove(message2receive)
+                        (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+                        program_dictionary[key] = (name, args, threadID, groupID, IP, READY, (0, 0, buffer), program_counter, instr_dict, labels_dict, var_dict)
+            except TypeError:
+                print("It's a value")
+                print(buffer)
+                if message2receive in buffer:
+                    print("Got the message I wanted: ", message2receive)
+                    # print(RED, "will del buffer[message] =", buffer[message2receive], ENDC)
+                    # del buffer[message2receive]
+                    buffer.remove(message2receive)
+                    (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
+                    program_dictionary[key] = (name, args, threadID, groupID, IP, READY, (0, 0, buffer), program_counter, instr_dict, labels_dict, var_dict)
+        print(BLUE, program_dictionary[key][BLOCKED_INFO_FIELD][RCV_BUFFER], ENDC)
 class BlockedManagerThread(Thread):
     def run(self):
         global program_dictionary
@@ -396,12 +474,188 @@ class BlockedManagerThread(Thread):
                 del program_dictionary[key2del]
             # else:
             #     print("Program ", key2del, " is not blocked. Going to try for another one")
-            # print(BLUE, program_dictionary, ENDC)
+            print(GREEN, program_dictionary, ENDC)
             program_dictionary_lock.release()
             time.sleep(1)
 ###########################################
-next_group_id  = 0
+# runtime_comm stuff
+
+FRAG_SIZE = 75
+UDP_SIZE = FRAG_SIZE + 64
+
+# The pinned Multicast address and port
+MCAST_GRP  = '224.0.0.1'
+MCAST_PORT = 10300
+
+################################################################################
+def find_avl_port(sock, MY_IP):
+    UDP_PORT = 1
+    while True:
+        try:
+            sock.bind((MY_IP, UDP_PORT))
+        except PermissionError:
+            # print("Another app is using this port. I am going to try try with: ", UDP_PORT)
+            UDP_PORT += 1
+            continue
+        except OSError:
+            # print("Another app is using this port. I am going to try try with: ", UDP_PORT)
+            UDP_PORT += 1
+            continue
+
+            break
+
+        print("I am listening on port: ", UDP_PORT)
+        return UDP_PORT
+
+def get_IP():
+    find_ip_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # doesn't even have to be reachable
+        find_ip_sock.connect(('10.255.255.255', 1))
+        IP = find_ip_sock.getsockname()[0]
+    except:
+        IP = '127.0.0.1'
+    return IP
+
+def fragNsend(sock, prog_dict_entry, address):
+    program_dictionary_string = str(prog_dict_entry)
+    # print(program_dictionary_string)
+    # print("#################################################")
+    program_dictionary_serialized = program_dictionary_string.encode()
+    # print(program_dictionary_serialized)
+
+    sock.sendto(str(("migrate", 0)).encode(), address)
+
+    iter = 0
+    while True:
+        # bytes2send = string2send[iter:(iter+25)].encode()
+        bytes2send = program_dictionary_serialized[iter:(iter+FRAG_SIZE-1)]
+        print("going to send ", bytes2send)
+        sock.sendto(bytes2send, address)
+        iter += FRAG_SIZE-1
+        if iter >= len(program_dictionary_serialized.decode()):
+            break
+            # if iter >= len(string2send):
+            #     break
+        # time.sleep(2)
+    # send exit
+    message = "EndOfTransmission"
+    sock.sendto(str(message).encode(), address)
+
+def global_ids_update(sock, next_group_id, next_thread_id, my_load):
+    message = ("inform", (next_group_id, next_thread_id, my_load))
+    sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
+
+class MulticastListener(Thread):
+    def run(self):
+        while True:
+            global next_group_id
+            global next_thread_id
+            # init - receive IP from the other runtime
+            d = mult_sock.recvfrom(UDP_SIZE)
+            print(MY_IP, MY_PORT)
+            print(d[1])
+            if d[1] == (MY_IP, MY_PORT):
+                continue
+            data = make_tuple(d[0].decode())
+            if data[0] == "hello":
+                print("New runtime @ ", d[1])
+                ids_lock.acquire()
+                other_runtimes_dict[d[1]] = 0
+                # my_load: vres to apo program_dictionary
+                message = ("inform", (next_group_id, next_thread_id, my_load))
+                sock.sendto(str(message).encode(), d[1])
+                print(other_runtimes_dict)
+                ids_lock.release()
+            elif data[0] == "exit":
+                ids_lock.acquire()
+                if d[1] in other_runtimes_dict:
+                    del other_runtimes_dict[d[1]]
+                    print(other_runtimes_dict)
+                ids_lock.release()
+            elif data[0] == "inform":
+                ids_lock.acquire()
+                next_group_id, next_thread_id, load = data[1]
+                if d[1] not in other_runtimes_dict:
+                    other_runtimes_dict[d[1]] = load
+                    print(other_runtimes_dict)
+                ids_lock.release()
+
+class ReceiverThread(Thread):
+    def run(self):
+        while True:
+            # init - receive IP from the other runtime
+            d = sock.recvfrom(UDP_SIZE)
+            data = make_tuple(d[0].decode())
+            print("I got: ", data)
+            if data[0] == "migrate":
+                program_dictionary_serialized = ""
+                while True:
+                    d = sock.recvfrom(UDP_SIZE)
+                    # print("I received from ", d[1])
+                    data = d[0].decode()
+                    # print("data: ", data)
+                    if data == "EndOfTransmission":
+                        break
+                    program_dictionary_serialized += data
+                program_dictionary_entry = make_tuple(program_dictionary_serialized)
+                # print("#################################################")
+                print(program_dictionary_entry)
+                print("command 5: ", program_dictionary_entry[5][5])
+
+                # ADD IN program_dictionary
+                # 1) na pairnei to pedio tou threadID kai na to xrhsimopoiei ws key
+                # 2) an uparxei sleep na prosarmozei ton xrono (h mhpws to runtime pou to stelnei?)
+                # 3) na allaksoume tin IP (h mhpws to runtime pou to stelnei?)
+            elif data[0] == "inform":
+                ids_lock.acquire()
+                next_group_id, next_thread_id, load = data[1]
+                if d[1] not in other_runtimes_dict:
+                    other_runtimes_dict[d[1]] = load
+                    print(other_runtimes_dict)
+                ids_lock.release()
+################################################################################
+
+# init private socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+MY_IP = get_IP()
+MY_PORT = find_avl_port(sock, MY_IP)
+print(MY_IP)
+print(MY_PORT)
+
+other_runtimes_dict = {}
+
+# # init program_dictionary
+next_group_id = 0
 next_thread_id = 0
+
+message = ("hello", 0)
+sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
+
+# Multicast Socket creation
+mult_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+mult_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+mult_sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+mreq = struct.pack("4sl", socket.inet_aton(MCAST_GRP), socket.INADDR_ANY)
+
+mult_sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+mult_sock.bind((MCAST_GRP, MCAST_PORT))
+
+ids_lock = Lock()
+
+# multicast thread
+multicastthread = MulticastListener()
+multicastthread.daemon = True
+multicastthread.start()
+
+receiverthread = ReceiverThread()
+receiverthread.daemon = True
+receiverthread.start()
+
+######################################################################################
+
+# next_group_id  = 0
+# next_thread_id = 0
 
 blockedManager = BlockedManagerThread()
 blockedManager.daemon = True
