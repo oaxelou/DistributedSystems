@@ -100,13 +100,14 @@ def check_for_PRN(args):
     if len(args) < 1:
         return (-1,0)
 
-    print("OLD ARGS: ")
+    print("PRINT: OLD ARGS: ")
     print(args)
     new_args = []
     arg_iter = 0
     while arg_iter < len(args):
+        # print(args[arg_iter])
         if args[arg_iter][0] == '\"':
-            if args[arg_iter][len(args[arg_iter])-1] == '\"':
+            if args[arg_iter][len(args[arg_iter])-1] == '\"' and len(args[arg_iter]) != 1:
                 new_args.append(args[arg_iter])
                 arg_iter += 1
                 continue
@@ -115,7 +116,7 @@ def check_for_PRN(args):
             for remaining in range(arg_iter+1, len(args)):
                 if remaining == len(args) - 1 and args[remaining][len(args[remaining])-1] != '\"':
                     print("Syntax error. string is not ending somewhere")
-                    return -1
+                    return -1,0
                 args[arg_iter] += " "
                 args[arg_iter] += args[remaining]
                 if args[remaining][len(args[remaining])-1] == '\"':
@@ -130,16 +131,16 @@ def check_for_PRN(args):
             arg_iter += 1
         else:
             print("Syntax Error")
-            return -1
+            return -1,0
 
-    args = new_args
-    print("new:", args)
+    # args = new_args
+    # print("new:", args)
     for iter in range(len(new_args)):
-        print(args[iter])
+        # print(args[iter])
         args[iter] = new_args[iter]
     # for rest in range(iter, len(args)-1):
         # del args[rest]
-    print("NEW ARGS: ")
+    print("PRINT NEW ARGS: ")
     print(args)
     # concatenation of strings
     # for i in range(len(args)):
