@@ -4,6 +4,7 @@ from threading import Thread
 from threading import Lock
 import socket
 import sys
+import os
 import struct
 from ast import literal_eval as make_tuple
 import struct
@@ -362,7 +363,7 @@ class InterpreterThread(Thread):
                 else:
                     print(BLUE, "\n\n\nThis thread has migrated...", ENDC)
             program_dictionary_lock.release()
-            time.sleep(1.5)
+            time.sleep(0.001)
 
 ###################################
 def dealWithBlocked(key):
@@ -507,7 +508,7 @@ class BlockedManagerThread(Thread):
                 del program_dictionary[key2del]
             # print(GREEN, program_dictionary, ENDC)
             program_dictionary_lock.release()
-            time.sleep(1)
+            time.sleep(0.001)
 ###########################################
 # runtime_comm stuff
 
@@ -915,7 +916,7 @@ def user_interface():
             print("Exiting...")
             message = ("exit", 0)
             sock.sendto(str(message).encode(), (MCAST_GRP, MCAST_PORT))
-            exit()
+            os._exit(0)
         else:
             print("Unknown command!")
         print("########################")
