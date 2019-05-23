@@ -68,6 +68,10 @@ other_runtimes_dict = {}
 next_group_id = 0
 next_thread_id = 0
 
+INTEPRETER_T = 1
+BLOCKED_MANAGER_T = 1
+LOAD_UPDATER_T = 1
+
 ################# CLASSES #################
 def setSleep(key, interval):
     global program_dictionary
@@ -364,7 +368,7 @@ class InterpreterThread(Thread):
                 # else:
                 #     print(BLUE, "\n\n\nThis thread has migrated...", ENDC)
             program_dictionary_lock.release()
-            time.sleep(0.001)
+            time.sleep(INTEPRETER_T)
 
 ###################################
 def dealWithBlocked(key):
@@ -509,7 +513,7 @@ class BlockedManagerThread(Thread):
                 del program_dictionary[key2del]
             # print(GREEN, program_dictionary, ENDC)
             program_dictionary_lock.release()
-            time.sleep(1)
+            time.sleep(BLOCKED_MANAGER_T)
 ###########################################
 # runtime_comm stuff
 
@@ -582,13 +586,14 @@ def global_ids_update(sock, my_load):
 
 def migrate(group, thread, runtime2send2):
     # search for the runtime IP
+    ids_lock.acquire()
     print(GREEN, other_runtimes_dict, ENDC)
     if runtime2send2 not in other_runtimes_dict:
         print("Runtime to send to was not found.")
         return
     else:
         print("I found the runtime to send program to.")
-
+    ids_lock.release()
     program_dictionary_lock.acquire()
     foundProgram = False
     print("\n\n\n\n\n\n\nGoing to find the thread")
@@ -674,9 +679,8 @@ class MulticastListener(Thread):
                 print("I was informed and I change my next_ids to", data[1])
                 ids_lock.acquire()
                 next_group_id, next_thread_id, load = data[1]
-                if d[1] not in other_runtimes_dict:
-                    other_runtimes_dict[d[1]] = load
-                    print(other_runtimes_dict)
+                other_runtimes_dict[d[1]] = load
+                print(other_runtimes_dict)
                 ids_lock.release()
 
 class ReceiverThread(Thread):
@@ -692,7 +696,7 @@ class ReceiverThread(Thread):
                     d = sock.recvfrom(UDP_SIZE)
                     # print("I received from ", d[1])
                     data = d[0].decode()
-                    # print("data: ", data)
+                    print("data: ", data)
                     if data == "EndOfTransmission":
                         break
                     program_dictionary_serialized += data
@@ -754,8 +758,52 @@ class ReceiverThread(Thread):
 
 ################################################################################
 # edw tha mpei to load balancing
+class LoadBalancer(Thread):
+    def run(self):
+        old_load = 0
+        while True:
+            # update current load
+            load = 0
+            program_dictionary_lock.acquire()
+            for program in program_dictionary:
+                if program_dictionary[program][IP_FIELD][1] == (MY_IP, MY_PORT):
+                    print(YELLOW, "This program runs on ME", ENDC)
+                    load += 1
+            program_dictionary_lock.release()
 
+            if old_load != load:
+                print(YELLOW, "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nLoad has changed from ", old_load, "to ", load, "\n\n\n\n\n\n\n\n\n\n\n\n\n\n",ENDC)
+                old_load = load
+                global_ids_update(sock, load)
+            else:
+                print(YELLOW, "Load remained the same", old_load, ENDC)
 
+            ids_lock.acquire()
+            for runtime in other_runtimes_dict:
+                print(BLUE, "Runtime ", runtime, "load: ", other_runtimes_dict[runtime], ENDC)
+                if load - other_runtimes_dict[runtime] > 1:
+                    # other_runtimes_dict[runtime] += 1
+
+                    program_dictionary_lock.acquire()
+                    program2migrate = -1
+                    for program in program_dictionary:
+                        print(BLUE, program, ENDC)
+                        if program_dictionary[program][IP_FIELD][1] == (MY_IP, MY_PORT):
+                            program2migrate = program
+                            break
+                    if program2migrate == -1:
+                        print(RED, "Something went terribly wrong with load rebalancing!!!", ENDC)
+                        os._exit(0)
+                    print(YELLOW, "I am gonna send this child ", program2migrate," (hopefully) to ", runtime, ENDC)
+                    # fragNsend(sock, program_dictionary[program2migrate], runtime)
+                    program_dictionary_lock.release()
+                    ids_lock.release()
+                    migrate(program_dictionary[program2migrate][GROUP_FIELD], program_dictionary[program2migrate][THREAD_FIELD][1], runtime)
+                    load -= 1
+                    ids_lock.acquire()
+            ids_lock.release()
+
+            time.sleep(LOAD_UPDATER_T)
 ################################################################################
 
 # init private socket
@@ -800,6 +848,10 @@ blockedManager.start()
 interpreter = InterpreterThread()
 interpreter.daemon = True
 interpreter.start()
+
+loadBalancer = LoadBalancer()
+loadBalancer.daemon = True
+loadBalancer.start()
 
 def print_menu():
     print("######### MENU #########")
