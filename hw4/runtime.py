@@ -131,7 +131,6 @@ def check_varval_int(varval, key):
 def run_command(key, command):
     global program_dictionary
     global program_dictionary_lock
-
     if command[0] == 'SET':
         var = command[1]
         varval = command[2]
@@ -254,7 +253,9 @@ def run_command(key, command):
                     string2print += str(program_dictionary[key][VAR_FIELD][arg]) + " "
             else:
                 if arg[0] == '\"':
-                    string2print += arg[1:-1] + " "
+                    if len(arg[0]) - 1 == '\"':
+                        string2print += arg[1:1] + " "
+                    string2print += arg[1:] + " "
                 else:
                     string2print += str(arg) + " "
         if program_dictionary[key][IP_FIELD][0] != program_dictionary[key][IP_FIELD][1]:
@@ -321,7 +322,7 @@ def dealWithReady(key):
         print(YELLOW, "running command", ENDC)
         pc = program_dictionary[key][PC_FIELD]
         command = program_dictionary[key][INSTR_FIELD][pc]
-
+        print(command, pc)
         new_pc = run_command(key, command) # returns -1 if there is no branch
         print("after run command: command =", command[0], "new_pc == ", new_pc)
         print(GREEN, program_dictionary[key][VAR_FIELD], ENDC)
@@ -358,10 +359,10 @@ class InterpreterThread(Thread):
                 if program_dictionary[key][IP_FIELD][1] == (MY_IP, MY_PORT):
                     if program_dictionary[key][STATE_FIELD] == READY:
                         dealWithReady(key)
-                    else:
-                        print(YELLOW, key, " is NOT running", ENDC)
-                else:
-                    print(BLUE, "\n\n\nThis thread has migrated...", ENDC)
+                    # else:
+                    #     print(YELLOW, key, " is NOT running", ENDC)
+                # else:
+                #     print(BLUE, "\n\n\nThis thread has migrated...", ENDC)
             program_dictionary_lock.release()
             time.sleep(0.001)
 
@@ -391,7 +392,7 @@ def dealWithBlocked(key):
             foundReceiver = False
             for program in program_dictionary:
                 print(YELLOW, receiver, "Checking to send to ",program_dictionary[program][THREAD_FIELD], ENDC)
-                if program_dictionary[program][THREAD_FIELD][1] == receiver:
+                if program_dictionary[program][THREAD_FIELD][1] == receiver and program_dictionary[program][GROUP_FIELD] == program_dictionary[key][GROUP_FIELD]:
                     print("Found the receiver")
                     foundReceiver = True
                     break
@@ -411,7 +412,7 @@ def dealWithBlocked(key):
             foundReceiver = False
             for program in program_dictionary:
                 print(YELLOW, receiver, "Checking to send to ",program_dictionary[program][THREAD_FIELD], ENDC)
-                if program_dictionary[program][THREAD_FIELD][1] == receiver:
+                if program_dictionary[program][THREAD_FIELD][1] == receiver and program_dictionary[program][GROUP_FIELD] == program_dictionary[key][GROUP_FIELD]:
                     print("Found the receiver")
                     foundReceiver = True
                     break
@@ -464,7 +465,7 @@ def dealWithBlocked(key):
                         # del buffer[message2receive]
                         buffer.remove(message2receive)
                         if program_dictionary[key][IP_FIELD][0] != (MY_IP, MY_PORT):
-                            message2send = ("deliver", key, message)
+                            message2send = ("deliver", key, message2receive)
                             sock.sendto(str(message2send).encode(), program_dictionary[key][IP_FIELD][0])
                         (name, args, threadID, groupID, IP, state, blockedInfo, program_counter, instr_dict, labels_dict, var_dict) = program_dictionary[key]
                         program_dictionary[key] = (name, args, threadID, groupID, IP, READY, (0, 0, buffer), program_counter, instr_dict, labels_dict, var_dict)
@@ -508,7 +509,7 @@ class BlockedManagerThread(Thread):
                 del program_dictionary[key2del]
             # print(GREEN, program_dictionary, ENDC)
             program_dictionary_lock.release()
-            time.sleep(0.001)
+            time.sleep(1)
 ###########################################
 # runtime_comm stuff
 
@@ -702,7 +703,9 @@ class ReceiverThread(Thread):
                 # ADD IN program_dictionary
                 # 1) na pairnei to pedio tou threadID kai na to xrhsimopoiei ws key
                 # 2) an uparxei sleep na prosarmozei ton xrono (h mhpws to runtime pou to stelnei?)
+                program_dictionary_lock.acquire()
                 program_dictionary[program_dictionary_entry[THREAD_FIELD][0]] = program_dictionary_entry
+                program_dictionary_lock.release()
                 # 3) na allaksoume tin IP (h mhpws to runtime pou to stelnei?)
             elif data[0] == "inform":
                 ids_lock.acquire()
@@ -718,7 +721,9 @@ class ReceiverThread(Thread):
                     setState(data[1], ENDED)
                 program_dictionary_lock.release()
             elif data[0] == "print":
+                program_dictionary_lock.acquire()
                 print(RED, "Group ", program_dictionary[data[1]][GROUP_FIELD], ", Thread ", program_dictionary[data[1]][THREAD_FIELD][1], ":", data[2], ENDC)
+                program_dictionary_lock.release()
             elif data[0] == "receive": # from the migrated thread's perspective
                 program_dictionary_lock.acquire()
                 program_dictionary[data[1]][BLOCKED_INFO_FIELD][RCV_BUFFER].append(data[2])
@@ -844,7 +849,10 @@ def user_interface():
                     argv_dict["$arg0"] = program_name
                     argc = 1
                 else:
-                    argv_dict["$arg" + str(argc)] = i
+                    try:
+                        argv_dict["$arg" + str(argc)] = int(i)
+                    except ValueError:
+                        argv_dict["$arg" + str(argc)] = i
                     argc += 1
             argv_dict["$argc"] = argc
             print("Going to check program ", program_name, " with args: ", argv_dict)
@@ -852,23 +860,28 @@ def user_interface():
             if (error_code == FAIL):
                 print("Syntax Error. Going to ignore whole group")
                 next_thread_id -= len(list(programs2start.keys()))
+                ids_lock.release()  # stopped here
                 continue
             programs2start[next_thread_id] = (program_name, (next_thread_id, next_prgrm_id), next_group_id, next_prgrm_id, argv_dict, instructions, labels)
             next_thread_id += 1
             next_group_id += 1
+            ids_lock.release()
+            program_dictionary_lock.acquire()
             for program2start in programs2start:
                 print("Going to start, ", program2start)
                 # add in the program_dictionary
                 name, threadID, groupID, programID, argvs, instr_dict, labels_dict = programs2start[program2start]
-                program_dictionary[program2start] = (name, argvs, threadID, groupID, ((MY_IP, MY_PORT),(MY_IP, MY_PORT)), READY, (0,(0,0),[]), 0, instr_dict, labels_dict, {})
-            global_ids_update(sock, len(list(program_dictionary)))
-            ids_lock.release()
+                program_dictionary[program2start] = (name, argvs, threadID, groupID, ((MY_IP, MY_PORT),(MY_IP, MY_PORT)), READY, (0,(0,0),[]), 0, instr_dict, labels_dict, argvs)
+                global_ids_update(sock, len(list(program_dictionary)))
+            program_dictionary_lock.release()
         elif command_list[0] == 'list'   :  # done
             print("next_group_id: ", next_group_id)
             print("next_thread_id: ", next_thread_id)
             print("Programs:")
+            program_dictionary_lock.acquire()
             if not program_dictionary:
                 print("(None)")
+                program_dictionary_lock.release()
                 continue
             for program in program_dictionary:
                 if program_dictionary[program][IP_FIELD][0] != (MY_IP, MY_PORT):
@@ -897,6 +910,7 @@ def user_interface():
                 else:
                     print_message += "???"
                 print(print_message)
+            program_dictionary_lock.release()
         elif command_list[0] == 'kill'   :  # done
             program_dictionary_lock.acquire()
             kill(command_list[1])
@@ -907,7 +921,6 @@ def user_interface():
             if len(command_list) != 5:
                 print("Wrong number of arguments: migrate <groupID> <threadID> <IP address> <port>")
                 continue
-
             runtime2send2 = (command_list[3],int(command_list[4]))
             groupID = int(command_list[1])
             programID = int(command_list[2])
