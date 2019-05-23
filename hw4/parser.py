@@ -159,6 +159,7 @@ def parser(program_name):
     try:
         f = open(program_name)
         instr_list = f.readlines()
+        print(instr_list)
         # edw to f mporei na kleisei, den to xreiazomaste allo
         f.close()
     except FileNotFoundError:
@@ -169,6 +170,14 @@ def parser(program_name):
     instr_dict = {}
     instcnt = 0
 
+    print(instr_list[0])
+    if instr_list[0] != "#SIMPLESCRIPT\n":
+        print("The code for this type of program not found!")
+        exit()
+    else:
+        print("I recognized this program type")
+
+    instr_list = instr_list[1:]
     for item in instr_list:
         instr_dict[instcnt] = item.split()
         first_word = instr_dict[instcnt][0]
@@ -185,9 +194,9 @@ def parser(program_name):
         instcnt += 1
 
 
-    instcnt = 0
-    for item in instr_list:
-        # print("opcode is: ", instr_dict[instcnt][0])
+    instcnt = 1
+    while instcnt < len(list(instr_list)):
+        print("opcode is: ", instr_dict[instcnt][0])
         opcode = instr_dict[instcnt][0]
         args = instr_dict[instcnt][1:]
 
@@ -228,6 +237,8 @@ def parser(program_name):
             if check_for_RET(args) == -1:
                 print("RET expects no args")
                 return(0,0,FAIL)
+            else:
+                break
         elif op_group(opcode) == 7:
             if check_for_BRA(args) == -1:
                 print("BRA expects: Label")
@@ -237,11 +248,11 @@ def parser(program_name):
 
         instcnt += 1
 
-    # for item in instr_dict:
-    #     print(instr_dict[item])
+    for item in instr_dict:
+        print(instr_dict[item])
     #
-    # print(label_dict)
-    # print(instr_dict)
+    print(label_dict)
+    print(instr_dict)
 
     return (label_dict, instr_dict, SUCCESS)
 
